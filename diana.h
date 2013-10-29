@@ -1,3 +1,5 @@
+// vim: ts=2:sw=2:noexpandtab
+
 #ifndef __DIANA_H__
 #define __DIANA_H__
 
