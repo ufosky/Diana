@@ -1,3 +1,5 @@
+// vim: ts=2:sw=2:noexpandtab
+
 #include "diana.h"
 
 #include <string.h>
@@ -141,7 +143,9 @@ struct _component {
 
 struct _system {
 	const char *name;
+	void (*started)(struct diana *);
 	void (*process)(struct diana *, DLuint entity, DLfloat delta);
+	void (*ended)(struct diana *);
 	void (*subscribed)(struct diana *, DLuint entity);
 	void (*unsubscribed)(struct diana *, DLuint entity);
 	struct _sparseIntegerSet watch;
@@ -186,6 +190,11 @@ struct diana {
 
 	DLuint num_systems;
 	struct _system *systems;
+
+#ifdef DIANA_MANAGER_ENABLED
+	DLuint num_managers;
+	struct _managers *managers;
+#endif
 };
 
 // ============================================================================
@@ -243,7 +252,9 @@ struct diana *allocate_diana(void *(*malloc)(size_t), void (*free)(void *)) {
 }
 
 DLenum diana_getError(struct diana *diana) {
-	return diana->error;
+	DLenum r = diana->error;
+	diana->error = DL_ERROR_NONE;
+	return r;
 }
 
 #define FOREACH_SPARSEINTSET(I, N, S) for(N = 0, I = (S)->dense ? (S)->dense[N] : 0; N < (S)->population; N++, I = (S)->dense[N])
@@ -308,8 +319,14 @@ void diana_process(struct diana *diana, DLfloat delta) {
 	_sparseIntegerSet_clear(diana, &diana->deleted);
 
 	FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
+		if(system->started != NULL) {
+			system->started(diana);
+		}
 		FOREACH_SPARSEINTSET(entity, i, &system->entities) {
 			system->process(diana, entity, delta);
+		}
+		if(system->ended != NULL) {
+			system->ended(diana);
 		}
 	}
 
@@ -344,7 +361,6 @@ void diana_free(struct diana *diana) {
 
 // ============================================================================
 // COMPONENT
-
 DLuint diana_registerComponent(struct diana *diana, const char *name, size_t size) {
 	struct _component c;
 
@@ -370,7 +386,6 @@ DLuint diana_registerComponent(struct diana *diana, const char *name, size_t siz
 
 // ============================================================================
 // SYSTEM
-
 DLuint diana_registerSystem(struct diana *diana, const char *name, void (*process)(struct diana *, DLuint entity, DLfloat delta)) {
 	struct _system s;
 
@@ -399,6 +414,17 @@ void diana_setSystemProcessCallback(struct diana *diana, DLuint system, void (*p
 	}
 
 	diana->systems[system].process = process;
+}
+
+void diana_setSystemProcessCallbacks(struct diana *diana, DLuint system, void (*started)(struct diana *), void (*process)(struct diana *, DLuint entity, DLfloat delta), void (*ended)(struct diana *)) {
+	if(system >= diana->num_systems) {
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return;
+	}
+
+	diana->systems[system].started = started;
+	diana->systems[system].process = process;
+	diana->systems[system].ended = ended;
 }
 
 void diana_setSystemEventCallback(struct diana *diana, DLuint system, DLenum event, void (*callback)(struct diana *, DLuint entity)) {
@@ -478,7 +504,6 @@ static void _remove(struct diana *diana, struct _system *system, DLuint entity) 
 
 // ============================================================================
 // MANAGER
-
 /*
 DLuint diana_registerManager(struct diana *diana, const char *name) {
 }
@@ -489,7 +514,6 @@ void diana_observe(struct diana *diana, DLuint manager, DLenum callback, void (*
 
 // ============================================================================
 // ENTITY
-
 static void *_getData(struct diana *diana, DLuint entity) {
 	if(entity >= diana->dataHeightCapacity) {
 		return diana->processingData[entity - diana->dataHeightCapacity];
@@ -681,3 +705,198 @@ void diana_delete(struct diana *diana, DLuint entity) {
 	_sparseIntegerSet_insert(diana, &diana->deleted, entity);
 }
 
+// ============================================================================
+// INSPECT
+DLint diana_getI(struct diana *diana, DLenum property) {
+	switch(property) {
+	case DL_NUM_COMPONENTS:
+		return diana->num_components;
+	case DL_NUM_SYSTEMS:
+		return diana->num_systems;
+#ifdef DIANA_MANAGER_ENABLED
+	case DL_NUM_MANAGERS:
+		return diana->num_managers;
+#endif
+	default:
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return 0;
+	}
+}
+
+void diana_getIV(struct diana *diana, DLenum property, DLint *iv) {
+	switch(property) {
+	case DL_NUM_COMPONENTS:
+		*iv = diana->num_components;
+		break;
+	case DL_NUM_SYSTEMS:
+		*iv = diana->num_systems;
+		break;
+#ifdef DIANA_MANAGER_ENABLED
+	case DL_NUM_MANAGERS:
+		*iv = diana->num_managers;
+		break;
+#endif
+	default:
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return;
+	}
+}
+
+void const * diana_getP(struct diana *diana, DLenum property) {
+	switch(property) {
+	default:
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return NULL;
+	}
+}
+
+void diana_getPV(struct diana *diana, DLenum property, void const * * pv) {
+	switch(property) {
+	default:
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return;
+	}
+}
+
+DLint diana_getObjectI(struct diana *diana, DLuint object, DLenum property) {
+	switch(property) {
+	case DL_COMPONENT_SIZE:
+		if(object < diana->num_components) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return 0;
+		}
+		return diana->components[object].size;
+	case DL_SYSTEM_NUM_WATCHES:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return 0;
+		}
+		return diana->systems[object].watch.population;
+	case DL_SYSTEM_NUM_ENTITIES:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return 0;
+		}
+		return diana->systems[object].entities.population;
+#ifdef DIANA_MANAGER_ENABLED
+	case DL_MANAGER_NUM_OBSERVE:
+#endif
+	default:
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return 0;
+	}
+}
+
+void diana_getObjectIV(struct diana *diana, DLuint object, DLenum property, DLint *iv) {
+	DLuint i, j;
+	switch(property) {
+	case DL_COMPONENT_SIZE:
+		if(object >= diana->num_components) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return;
+		}
+		*iv = diana->components[object].size;
+		break;
+	case DL_SYSTEM_NUM_WATCHES:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return;
+		}
+		*iv = diana->systems[object].watch.population;
+		break;
+	case DL_SYSTEM_WATCHES:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return;
+		}
+		FOREACH_SPARSEINTSET(i, j, &diana->systems[object].watch) {
+			*iv++ = i;
+		}
+		break;
+	case DL_SYSTEM_NUM_ENTITIES:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return;
+		}
+		*iv = diana->systems[object].entities.population;
+		break;
+	case DL_SYSTEM_ENTITIES:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return;
+		}
+		FOREACH_SPARSEINTSET(i, j, &diana->systems[object].entities) {
+			*iv++ = i;
+		}
+		break;
+#ifdef DIANA_MANAGER_ENABLED
+	case DL_MANAGER_NUM_OBSERVE:
+#endif
+	default:
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return;
+	}
+}
+
+void const * diana_getObjectP(struct diana *diana, DLuint object, DLenum property) {
+	switch(property) {
+#ifdef DIANA_MANAGER_ENABLED
+	case DL_ENTITY_ADDED:
+	case DL_ENTITY_ENABLED:
+	case DL_ENTITY_DISABLED:
+	case DL_ENTITY_DELETED:
+#endif
+	case DL_SUBSCRIBED:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return NULL;
+		}
+		return diana->systems[object].subscribed;
+	case DL_UNSUBSCRIBED:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return NULL;
+		}
+		return diana->systems[object].unsubscribed;
+	case DL_PROCESSING_STARTED:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return NULL;
+		}
+		return diana->systems[object].started;
+	case DL_PROCESSING_ENDED:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return NULL;
+		}
+		return diana->systems[object].ended;
+	case DL_COMPONENT_NAME:
+		if(object >= diana->num_components) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return NULL;
+		}
+		return diana->components[object].name;
+	case DL_SYSTEM_NAME:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return NULL;
+		}
+		return diana->systems[object].name;
+	case DL_SYSTEM_PROCESS:
+		if(object >= diana->num_systems) {
+			diana->error = DL_ERROR_INVALID_VALUE;
+			return NULL;
+		}
+		return diana->systems[object].process;
+#ifdef DIANA_MANAGER_ENABLED
+	case DL_MANAGER_NAME:
+#endif
+	default:
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return NULL;
+	}
+}
+
+void diana_getObjectPV(struct diana *diana, DLuint object, DLenum property, void const * * pv) {
+	*pv = diana_getObjectP(diana, object, property);
+}

@@ -5,6 +5,8 @@
 extern "C" {
 #endif
 
+#define DIANA_VERSION "0.0.2"
+
 #include <stddef.h>
 
 typedef int DLint;
@@ -25,12 +27,14 @@ typedef char DLboolean;
 #define DL_ERROR_INVALID_OPERATION 0x0003
 
 // events
-#define DL_ENTITY_ADDED    0x1000
-#define DL_ENTITY_ENABLED  0x1001
-#define DL_ENTITY_DISABLED 0x1002
-#define DL_ENTITY_DELETED  0x1003
-#define DL_SUBSCRIBED      0x1004
-#define DL_UNSUBSCRIBED    0x1005
+#define DL_ENTITY_ADDED       0x1000
+#define DL_ENTITY_ENABLED     0x1001
+#define DL_ENTITY_DISABLED    0x1002
+#define DL_ENTITY_DELETED     0x1003
+#define DL_SUBSCRIBED         0x1004
+#define DL_UNSUBSCRIBED       0x1005
+#define DL_PROCESSING_STARTED 0x1006
+#define DL_PROCESSING_ENDED   0x1007
 
 // inspection
 #define DL_NUM_COMPONENTS      0x2000
@@ -60,29 +64,27 @@ void diana_process(struct diana *, DLfloat delta);
 void diana_free(struct diana *);
 
 // COMPONENT
-
 DLuint diana_registerComponent(struct diana *diana, const char *name, size_t size);
 
 // SYSTEM
-
 DLuint diana_registerSystem(struct diana *diana, const char *name, void (*process)(struct diana *, DLuint entity, DLfloat delta));
 
 void diana_setSystemProcessCallback(struct diana *diana, DLuint system, void (*process)(struct diana *, DLuint entity, DLfloat delta));
+
+void diana_setSystemProcessCallbacks(struct diana *diana, DLuint system, void (*started)(struct diana *), void (*process)(struct diana *, DLuint entity, DLfloat delta), void (*ended)(struct diana *));
 
 void diana_setSystemEventCallback(struct diana *diana, DLuint system, DLenum event, void (*callback)(struct diana *, DLuint entity));
 
 void diana_watch(struct diana *diana, DLuint system, DLuint component);
 
 // MANAGER
-
-/*
+#ifdef DIANA_MANAGER_ENABLED
 DLuint diana_registerManager(struct diana *diana, const char *name);
 
 void diana_observe(struct diana *diana, DLuint manager, DLenum callback, void (*function)(struct diana *diana, DLuint manager, DLenum callback, DLuint entity));
-*/
+#endif
 
 // ENTITY
-
 DLuint diana_spawn(struct diana *diana);
 
 void diana_setComponent(struct diana *diana, DLuint entity, DLuint component, void *data);
@@ -100,12 +102,17 @@ void diana_disable(struct diana *diana, DLuint entity);
 void diana_delete(struct diana *diana, DLuint entity);
 
 // INSPECT
+DLint diana_getI(struct diana *, DLenum property);
+void diana_getIV(struct diana *, DLenum property, DLint *);
+
+void const * diana_getP(struct diana *, DLenum property);
+void diana_getPV(struct diana *, DLenum property, void const * *);
 
 DLint diana_getObjectI(struct diana *, DLuint object, DLenum property);
 void diana_getObjectIV(struct diana *, DLuint object, DLenum property, DLint *);
 
-void *diana_getObjectP(struct diana *, DLuint object, DLenum property);
-void diana_getObjectPV(struct diana *, DLuint object, DLenum property, void **);
+void const * diana_getObjectP(struct diana *, DLuint object, DLenum property);
+void diana_getObjectPV(struct diana *, DLuint object, DLenum property, void const * *);
 
 #ifdef __cplusplus__
 }
