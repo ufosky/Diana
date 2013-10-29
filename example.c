@@ -32,7 +32,7 @@ void _DEBUG(struct diana *diana, const char *file, int line) {
 #define DEBUG(D)
 #endif
 
-static void movementSystem_process(struct diana *diana, DLuint entity, DLfloat delta) {
+static void movementSystem_process(struct diana *diana, void *user_data, DLuint entity, DLfloat delta) {
 	struct position *position = (struct position *)diana_getComponent(diana, entity, positionComponent); DEBUG(diana);
 	struct velocity *velocity = (struct velocity *)diana_getComponent(diana, entity, velocityComponent); DEBUG(diana);
 
@@ -42,7 +42,7 @@ static void movementSystem_process(struct diana *diana, DLuint entity, DLfloat d
 	printf("%i move to (%f,%f)\n", entity, position->x, position->y);
 }
 
-static void renderSystem_process(struct diana *diana, DLuint entity, DLfloat delta) {
+static void renderSystem_process(struct diana *diana, void *user_data, DLuint entity, DLfloat delta) {
 	struct position *position = (struct position *)diana_getComponent(diana, entity, positionComponent); DEBUG(diana);
 	struct renderer *renderer = (struct renderer *)diana_getComponent(diana, entity, rendererComponent); DEBUG(diana);
 
@@ -57,11 +57,11 @@ int main() {
 	velocityComponent = diana_registerComponent(diana, "velocity", sizeof(struct velocity)); DEBUG(diana);
 	rendererComponent = diana_registerComponent(diana, "renderer", sizeof(struct renderer)); DEBUG(diana);
 
-	DLuint movementSystem = diana_registerSystem(diana, "movement", movementSystem_process); DEBUG(diana);
+	DLuint movementSystem = diana_registerSystem(diana, "movement", movementSystem_process, NULL); DEBUG(diana);
 	diana_watch(diana, movementSystem, positionComponent); DEBUG(diana);
 	diana_watch(diana, movementSystem, velocityComponent); DEBUG(diana);
 
-	DLuint renderSystem = diana_registerSystem(diana, "render", renderSystem_process); DEBUG(diana);
+	DLuint renderSystem = diana_registerSystem(diana, "render", renderSystem_process, NULL); DEBUG(diana);
 	diana_watch(diana, renderSystem, positionComponent); DEBUG(diana);
 	diana_watch(diana, renderSystem, rendererComponent); DEBUG(diana);
 
