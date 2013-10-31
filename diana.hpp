@@ -13,8 +13,9 @@ namespace Diana {
 
 class Component { };
 
-class System;
 class Entity;
+class System;
+class Manager;
 
 class World {
 public:
@@ -23,7 +24,6 @@ public:
 	template<class T>
 	DLuint registerComponent() {
 		const std::type_info * tid = &typeid(T);
-
 		if(components.count(tid) == 0) {
 			components[tid] = diana_registerComponent(diana, tid->name(), sizeof(T));
 		}
@@ -38,6 +38,7 @@ public:
 	}
 
 	void registerSystem(System *system);
+	void registerManager(Manager *manager);
 
 	void initialize();
 
@@ -107,6 +108,25 @@ public:
 		DLuint cid = _world->registerComponent<T>();
 		diana_watch(_world->getDiana(), _id, cid);
 	}
+
+private:
+	std::string _name;
+	World * _world;
+	DLuint _id;
+};
+
+class Manager {
+public:
+	Manager(const char *name) : _name(name) { }
+
+	void setWorld(World *);
+	World *getWorld() { return _world; }
+	DLuint getId() { return _id; }
+
+	virtual void added(Entity &entity) { }
+	virtual void enabled(Entity &entity) { }
+	virtual void disabled(Entity &entity) { }
+	virtual void deleted(Entity &entity) { }
 
 private:
 	std::string _name;

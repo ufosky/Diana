@@ -4,12 +4,19 @@
 
 namespace Diana {
 
+// ============================================================================
+// WORLD
+// - really 'diana' but world is a better name
 World::World(void *(*malloc)(size_t), void (*free)(void *)) {
 	diana = allocate_diana(malloc, free);
 }
 
 void World::registerSystem(System *system) {
 	system->setWorld(this);
+}
+
+void World::registerManager(Manager *manager) {
+	manager->setWorld(this);
 }
 
 void World::initialize() {
@@ -25,6 +32,8 @@ Entity World::spawn() {
 	return Entity(this, eid);
 }
 
+// ============================================================================
+// ENTITY
 void Entity::add() {
 	diana_add(_world->getDiana(), _id);
 }
@@ -41,8 +50,8 @@ void Entity::_delete() {
 	diana_delete(_world->getDiana(), _id);
 }
 
-// DLuint diana_registerSystem(struct diana *diana, const char *name, void (*process)(struct diana *, void *user_data, DLuint entity, DLfloat delta), void *user_data);
-
+// ============================================================================
+// SYSTEM
 static void _system_started(struct diana *, void *user_data) {
 	System *sys = (System *)user_data;
 	sys->started();
@@ -78,6 +87,29 @@ void System::setWorld(World *world) {
 	diana_setSystemEventCallback(world->getDiana(), _id, DL_SUBSCRIBED, _system_subscribed);
 	diana_setSystemEventCallback(world->getDiana(), _id, DL_UNSUBSCRIBED, _system_unsubscribed);
 	addWatches();
+}
+
+// ============================================================================
+// MANAGER
+static void _manager_callback(struct diana *, void *user_data, DLenum callback, DLuint entity_id) {
+	Manager *man = (Manager *)user_data;
+	Entity entity(man->getWorld(), entity_id);
+	switch(callback) {
+	case DL_ENTITY_ADDED:
+		man->added(entity);
+	case DL_ENTITY_ENABLED:
+		man->enabled(entity);
+	case DL_ENTITY_DISABLED:
+		man->disabled(entity);
+	case DL_ENTITY_DELETED:
+		man->deleted(entity);
+	}
+}
+
+void Manager::setWorld(World *world) {
+	_world = world;
+	_id = diana_registerManager(world->getDiana(), _name.c_str(), this);
+	diana_observeAll(world->getDiana(), _id, _manager_callback);
 }
 
 };
