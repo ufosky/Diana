@@ -150,6 +150,7 @@ struct _system {
 	void (*subscribed)(struct diana *, void *user_data, DLuint entity);
 	void (*unsubscribed)(struct diana *, void *user_data, DLuint entity);
 	struct _sparseIntegerSet watch;
+	struct _sparseIntegerSet exclude;
 	struct _sparseIntegerSet entities;
 };
 
@@ -511,6 +512,25 @@ void diana_watch(struct diana *diana, DLuint system, DLuint component) {
 	_sparseIntegerSet_insert(diana, &diana->systems[system].watch, component);
 }
 
+void diana_exclude(struct diana *diana, DLuint system, DLuint component) {
+	if(diana->initialized) {
+		diana->error = DL_ERROR_INVALID_OPERATION;
+		return;
+	}
+
+	if(system >= diana->num_systems) {
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return;
+	}
+
+	if(component >= diana->num_components) {
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return;
+	}
+
+	_sparseIntegerSet_insert(diana, &diana->systems[system].exclude, component);
+}
+
 static void *_getData(struct diana *, DLuint);
 
 static void _check(struct diana *diana, struct _system *system, DLuint entity) {
@@ -522,6 +542,13 @@ static void _check(struct diana *diana, struct _system *system, DLuint entity) {
 
 	FOREACH_SPARSEINTSET(component, i, &system->watch) {
 		if(!(entity_components[component >> 3] & (1 << (component & 7)))) {
+			wanted = DL_FALSE;
+			break;
+		}
+	}
+
+	FOREACH_SPARSEINTSET(component, i, &system->exclude) {
+		if((entity_components[component >> 3] & (1 << (component & 7)))) {
 			wanted = DL_FALSE;
 			break;
 		}

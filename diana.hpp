@@ -109,6 +109,12 @@ public:
 		diana_watch(_world->getDiana(), _id, cid);
 	}
 
+	template<class T>
+	void exclude() {
+		DLuint cid = _world->registerComponent<T>();
+		diana_exclude(_world->getDiana(), _id, cid);
+	}
+
 private:
 	std::string _name;
 	World * _world;

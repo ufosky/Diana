@@ -83,6 +83,8 @@ void diana_setSystemUserData(struct diana *diana, DLuint system, void *user_data
 
 void diana_watch(struct diana *diana, DLuint system, DLuint component);
 
+void diana_exclude(struct diana *diana, DLuint system, DLuint component);
+
 // MANAGER
 DLuint diana_registerManager(struct diana *diana, const char *name, void *user_data);
 
