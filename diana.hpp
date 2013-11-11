@@ -22,16 +22,16 @@ public:
 	World(void *(*malloc)(size_t) = malloc, void (*free)(void *) = free);
 
 	template<class T>
-	DLuint registerComponent() {
+	unsigned int registerComponent() {
 		const std::type_info * tid = &typeid(T);
 		if(components.count(tid) == 0) {
-			components[tid] = diana_registerComponent(diana, tid->name(), sizeof(T));
+			components[tid] = diana_createComponent(diana, tid->name(), sizeof(T), DL_COMPONENT_FLAG_INLINE);
 		}
 		return components[tid];
 	}
 
 	template<class T>
-	DLuint getComponentId() {
+	unsigned int getComponentId() {
 		const std::type_info * tid = &typeid(T);
 
 		return components[tid];
@@ -44,22 +44,22 @@ public:
 
 	Entity spawn();
 
-	void process(DLfloat delta);
+	void process(float delta);
 
 	struct diana *getDiana() { return diana; }
 
 private:
 	struct diana *diana;
-	std::map<const std::type_info *, DLuint> components;
+	std::map<const std::type_info *, unsigned int> components;
 };
 
 class Entity {
 public:
-	Entity(World *world, DLuint id) : _world(world), _id(id) { }
+	Entity(World *world, unsigned int id) : _world(world), _id(id) { }
 
 	template<class T>
 	void setComponent(const T * data = NULL) {
-		DLuint cid = _world->getComponentId<T>();
+		unsigned int cid = _world->getComponentId<T>();
 		diana_setComponent(_world->getDiana(), _id, cid, data);
 	}
 
@@ -70,7 +70,7 @@ public:
 
 	template<class T>
 	T &getComponent() {
-		DLuint cid = _world->getComponentId<T>();
+		unsigned int cid = _world->getComponentId<T>();
 		return *(T *)diana_getComponent(_world->getDiana(), _id, cid);
 	}
 
@@ -79,11 +79,11 @@ public:
 	void disable();
 	void _delete();
 
-	DLuint getId() { return _id; }
+	unsigned int getId() { return _id; }
 
 private:
 	World * _world;
-	DLuint _id;
+	unsigned int _id;
 };
 
 class System {
@@ -92,33 +92,33 @@ public:
 
 	void setWorld(World *);
 	World *getWorld() { return _world; }
-	DLuint getId() { return _id; }
+	unsigned int getId() { return _id; }
 
 	virtual void addWatches() { }
 
-	virtual void started() { }
-	virtual void process(Entity &entity, DLfloat delta) { }
-	virtual void ended() { }
+	virtual void starting() { }
+	virtual void process(Entity &entity, float delta) { }
+	virtual void ending() { }
 
 	virtual void subscribed(Entity &entity) { }
 	virtual void unsubscribed(Entity &entity) { }
 
 	template<class T>
 	void watch() {
-		DLuint cid = _world->registerComponent<T>();
+		unsigned int cid = _world->registerComponent<T>();
 		diana_watch(_world->getDiana(), _id, cid);
 	}
 
 	template<class T>
 	void exclude() {
-		DLuint cid = _world->registerComponent<T>();
+		unsigned int cid = _world->registerComponent<T>();
 		diana_exclude(_world->getDiana(), _id, cid);
 	}
 
 private:
 	std::string _name;
 	World * _world;
-	DLuint _id;
+	unsigned int _id;
 };
 
 class Manager {
@@ -127,7 +127,7 @@ public:
 
 	void setWorld(World *);
 	World *getWorld() { return _world; }
-	DLuint getId() { return _id; }
+	unsigned int getId() { return _id; }
 
 	virtual void added(Entity &entity) { }
 	virtual void enabled(Entity &entity) { }
@@ -137,7 +137,7 @@ public:
 private:
 	std::string _name;
 	World * _world;
-	DLuint _id;
+	unsigned int _id;
 };
 
 };

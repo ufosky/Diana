@@ -23,58 +23,58 @@ void World::initialize() {
 	diana_initialize(diana);
 }
 
-void World::process(DLfloat delta) {
+void World::process(float delta) {
 	diana_process(diana, delta);
 }
 
 Entity World::spawn() {
-	DLuint eid = diana_spawn(diana);
+	unsigned int eid = diana_spawn(diana);
 	return Entity(this, eid);
 }
 
 // ============================================================================
 // ENTITY
 void Entity::add() {
-	diana_add(_world->getDiana(), _id);
+	diana_signal(_world->getDiana(), _id, DL_ENTITY_ADDED);
 }
 
 void Entity::enable() {
-	diana_enable(_world->getDiana(), _id);
+	diana_signal(_world->getDiana(), _id, DL_ENTITY_ENABLED);
 }
 
 void Entity::disable() {
-	diana_disable(_world->getDiana(), _id);
+	diana_signal(_world->getDiana(), _id, DL_ENTITY_DISABLED);
 }
 
 void Entity::_delete() {
-	diana_delete(_world->getDiana(), _id);
+	diana_signal(_world->getDiana(), _id, DL_ENTITY_DELETED);
 }
 
 // ============================================================================
 // SYSTEM
-static void _system_started(struct diana *, void *user_data) {
+static void _system_starting(struct diana *, void *user_data) {
 	System *sys = (System *)user_data;
-	sys->started();
+	sys->starting();
 }
 
-static void _system_process(struct diana *, void *user_data, DLuint entity_id, DLfloat delta) {
+static void _system_process(struct diana *, void *user_data, unsigned int entity_id, float delta) {
 	System *sys = (System *)user_data;
 	Entity entity(sys->getWorld(), entity_id);
 	sys->process(entity, delta);
 }
 
-static void _system_ended(struct diana *, void *user_data) {
+static void _system_ending(struct diana *, void *user_data) {
 	System *sys = (System *)user_data;
-	sys->ended();
+	sys->ending();
 }
 
-static void _system_subscribed(struct diana *, void *user_data, DLuint entity_id) {
+static void _system_subscribed(struct diana *, void *user_data, unsigned int entity_id) {
 	System *sys = (System *)user_data;
 	Entity entity(sys->getWorld(), entity_id);
 	sys->subscribed(entity);
 }
 
-static void _system_unsubscribed(struct diana *, void *user_data, DLuint entity_id) {
+static void _system_unsubscribed(struct diana *, void *user_data, unsigned int entity_id) {
 	System *sys = (System *)user_data;
 	Entity entity(sys->getWorld(), entity_id);
 	sys->unsubscribed(entity);
@@ -82,34 +82,39 @@ static void _system_unsubscribed(struct diana *, void *user_data, DLuint entity_
 
 void System::setWorld(World *world) {
 	_world = world;
-	_id = diana_registerSystem(world->getDiana(), _name.c_str(), _system_process, this);
-	diana_setSystemProcessCallbacks(world->getDiana(), _id, _system_started, _system_process, _system_ended);
-	diana_setSystemEventCallback(world->getDiana(), _id, DL_SUBSCRIBED, _system_subscribed);
-	diana_setSystemEventCallback(world->getDiana(), _id, DL_UNSUBSCRIBED, _system_unsubscribed);
+	_id = diana_createSystem(world->getDiana(), _name.c_str(), _system_starting, _system_process, _system_ending, _system_subscribed, _system_unsubscribed, this);
 	addWatches();
 }
 
 // ============================================================================
 // MANAGER
-static void _manager_callback(struct diana *, void *user_data, DLenum callback, DLuint entity_id) {
+static void _manager_added(struct diana *, void *user_data, unsigned int entity_id) {
 	Manager *man = (Manager *)user_data;
 	Entity entity(man->getWorld(), entity_id);
-	switch(callback) {
-	case DL_ENTITY_ADDED:
-		man->added(entity);
-	case DL_ENTITY_ENABLED:
-		man->enabled(entity);
-	case DL_ENTITY_DISABLED:
-		man->disabled(entity);
-	case DL_ENTITY_DELETED:
-		man->deleted(entity);
-	}
+	man->added(entity);
+}
+
+static void _manager_enabled(struct diana *, void *user_data, unsigned int entity_id) {
+	Manager *man = (Manager *)user_data;
+	Entity entity(man->getWorld(), entity_id);
+	man->enabled(entity);
+}
+
+static void _manager_disabled(struct diana *, void *user_data, unsigned int entity_id) {
+	Manager *man = (Manager *)user_data;
+	Entity entity(man->getWorld(), entity_id);
+	man->disabled(entity);
+}
+
+static void _manager_deleted(struct diana *, void *user_data, unsigned int entity_id) {
+	Manager *man = (Manager *)user_data;
+	Entity entity(man->getWorld(), entity_id);
+	man->deleted(entity);
 }
 
 void Manager::setWorld(World *world) {
 	_world = world;
-	_id = diana_registerManager(world->getDiana(), _name.c_str(), this);
-	diana_observeAll(world->getDiana(), _id, _manager_callback);
+	_id = diana_createManager(world->getDiana(), _name.c_str(), _manager_added, _manager_enabled, _manager_disabled, _manager_deleted, this);
 }
 
 };

@@ -8,20 +8,20 @@
 struct position {
 	float x, y;
 };
-static DLuint positionComponent;
+static unsigned int positionComponent;
 
 struct velocity {
 	float x, y;
 };
-static DLuint velocityComponent;
+static unsigned int velocityComponent;
 
 struct renderer {
 	int c;
 };
-static DLuint rendererComponent;
+static unsigned int rendererComponent;
 
 void _DEBUG(struct diana *diana, const char *file, int line) {
-	DLenum err = diana_getError(diana);
+	unsigned int err = diana_getError(diana);
 	if(err == DL_ERROR_NONE) {
 		return;
 	}
@@ -34,7 +34,7 @@ void _DEBUG(struct diana *diana, const char *file, int line) {
 #define DEBUG(D)
 #endif
 
-static void movementSystem_process(struct diana *diana, void *user_data, DLuint entity, DLfloat delta) {
+static void movementSystem_process(struct diana *diana, void *user_data, unsigned int entity, float delta) {
 	struct position *position = (struct position *)diana_getComponent(diana, entity, positionComponent); DEBUG(diana);
 	struct velocity *velocity = (struct velocity *)diana_getComponent(diana, entity, velocityComponent); DEBUG(diana);
 
@@ -44,7 +44,7 @@ static void movementSystem_process(struct diana *diana, void *user_data, DLuint 
 	printf("%i move to (%f,%f)\n", entity, position->x, position->y);
 }
 
-static void renderSystem_process(struct diana *diana, void *user_data, DLuint entity, DLfloat delta) {
+static void renderSystem_process(struct diana *diana, void *user_data, unsigned int entity, float delta) {
 	struct position *position = (struct position *)diana_getComponent(diana, entity, positionComponent); DEBUG(diana);
 	struct renderer *renderer = (struct renderer *)diana_getComponent(diana, entity, rendererComponent); DEBUG(diana);
 
@@ -55,29 +55,29 @@ int main() {
 	struct diana *diana = allocate_diana(malloc, free);
 	struct velocity ev = {1.5, 0};
 
-	positionComponent = diana_registerComponent(diana, "position", sizeof(struct position)); DEBUG(diana);
-	velocityComponent = diana_registerComponent(diana, "velocity", sizeof(struct velocity)); DEBUG(diana);
-	rendererComponent = diana_registerComponent(diana, "renderer", sizeof(struct renderer)); DEBUG(diana);
+	positionComponent = diana_createComponent(diana, "position", sizeof(struct position), DL_COMPONENT_FLAG_INLINE); DEBUG(diana);
+	velocityComponent = diana_createComponent(diana, "velocity", sizeof(struct velocity), DL_COMPONENT_FLAG_INLINE); DEBUG(diana);
+	rendererComponent = diana_createComponent(diana, "renderer", sizeof(struct renderer), DL_COMPONENT_FLAG_INLINE); DEBUG(diana);
 
-	DLuint movementSystem = diana_registerSystem(diana, "movement", movementSystem_process, NULL); DEBUG(diana);
+	unsigned int movementSystem = diana_createSystem(diana, "movement", NULL, movementSystem_process, NULL, NULL, NULL, NULL); DEBUG(diana);
 	diana_watch(diana, movementSystem, positionComponent); DEBUG(diana);
 	diana_watch(diana, movementSystem, velocityComponent); DEBUG(diana);
 
-	DLuint renderSystem = diana_registerSystem(diana, "render", renderSystem_process, NULL); DEBUG(diana);
+	unsigned int renderSystem = diana_createSystem(diana, "render", NULL, renderSystem_process, NULL, NULL, NULL, NULL); DEBUG(diana);
 	diana_watch(diana, renderSystem, positionComponent); DEBUG(diana);
 	diana_watch(diana, renderSystem, rendererComponent); DEBUG(diana);
 
 	diana_initialize(diana); DEBUG(diana);
 
-	DLuint e = diana_spawn(diana); DEBUG(diana);
+	unsigned int e = diana_spawn(diana); DEBUG(diana);
 	diana_setComponent(diana, e, positionComponent, NULL); DEBUG(diana);
 	diana_setComponent(diana, e, velocityComponent, &ev); DEBUG(diana);
-	diana_add(diana, e); DEBUG(diana);
+	diana_signal(diana, e, DL_ENTITY_ADDED); DEBUG(diana);
 
-	DLuint e1 = diana_spawn(diana); DEBUG(diana);
+	unsigned int e1 = diana_spawn(diana); DEBUG(diana);
 	diana_setComponent(diana, e1, positionComponent, NULL); DEBUG(diana);
 	diana_setComponent(diana, e1, rendererComponent, NULL); DEBUG(diana);
-	diana_add(diana, e1); DEBUG(diana);
+	diana_signal(diana, e1, DL_ENTITY_ADDED); DEBUG(diana);
 
 	while(1) {
 		// 30 fps

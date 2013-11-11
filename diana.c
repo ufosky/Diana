@@ -16,60 +16,64 @@ static void *_realloc(struct diana *diana, void *ptr, size_t oldSize, size_t new
 // - used for delaying entity adding, enabling, disabled and deleting
 // - used by each system to track entities it has
 struct _sparseIntegerSet {
-	DLuint *dense;
-	DLuint *sparse;
-	DLuint population;
-	DLuint capacity;
+	unsigned int *dense;
+	unsigned int *sparse;
+	unsigned int population;
+	unsigned int capacity;
 };
 
-static DLboolean _sparseIntegerSet_contains(struct diana *diana, struct _sparseIntegerSet *is, DLuint i) {
+static int _sparseIntegerSet_contains(struct diana *diana, struct _sparseIntegerSet *is, unsigned int i) {
 	if(i >= is->capacity) {
-		return DL_FALSE;
+		return 0;
 	}
-	DLuint a = is->sparse[i];
-	DLuint n = is->population;
+	unsigned int a = is->sparse[i];
+	unsigned int n = is->population;
 	return a < n && is->dense[a] == i;
 }
 
-static void _sparseIntegerSet_insert(struct diana *diana, struct _sparseIntegerSet *is, DLuint i) {
+static int _sparseIntegerSet_insert(struct diana *diana, struct _sparseIntegerSet *is, unsigned int i) {
 	if(i >= is->capacity) {
-		DLuint newCapacity = (i + 1) * 1.5;
-		is->dense = _realloc(diana, is->dense, is->capacity * sizeof(DLuint), newCapacity * sizeof(DLuint));
-		is->sparse = _realloc(diana, is->sparse, is->capacity * sizeof(DLuint), newCapacity * sizeof(DLuint));
+		unsigned int newCapacity = (i + 1) * 1.5;
+		is->dense = _realloc(diana, is->dense, is->capacity * sizeof(unsigned int), newCapacity * sizeof(unsigned int));
+		is->sparse = _realloc(diana, is->sparse, is->capacity * sizeof(unsigned int), newCapacity * sizeof(unsigned int));
 		is->capacity = newCapacity;
 	}
-	DLuint a = is->sparse[i];
-	DLuint n = is->population;
+	unsigned int a = is->sparse[i];
+	unsigned int n = is->population;
 	if(a >= n || is->dense[a] != i) {
 		is->sparse[i] = n;
 		is->dense[n] = i;
 		is->population = n + 1;
+		return 0;
 	}
+	return 1;
 }
 
-static void _sparseIntegerSet_delete(struct diana *diana, struct _sparseIntegerSet *is, DLuint i) {
+static int _sparseIntegerSet_delete(struct diana *diana, struct _sparseIntegerSet *is, unsigned int i) {
 	if(i >= is->capacity) {
-		return;
+		return 0;
 	}
-	DLuint a = is->sparse[i];
-	DLuint n = is->population - 1;
+	unsigned int a = is->sparse[i];
+	unsigned int n = is->population - 1;
 	if(a <= n || is->dense[a] == i) {
-		DLuint e = is->dense[n];
+		unsigned int e = is->dense[n];
 		is->population = n;
 		is->dense[n] = e;
 		is->sparse[e] = a;
+		return 1;
 	}
+	return 0;
 }
 
 static void _sparseIntegerSet_clear(struct diana *diana, struct _sparseIntegerSet *is) {
 	is->population = 0;
 }
 
-static DLboolean _sparseIntegerSet_isEmpty(struct diana *diana, struct _sparseIntegerSet *is) {
+static int _sparseIntegerSet_isEmpty(struct diana *diana, struct _sparseIntegerSet *is) {
 	return is->population == 0;
 }
 
-static DLuint _sparseIntegerSet_pop(struct diana *diana, struct _sparseIntegerSet *is) {
+static unsigned int _sparseIntegerSet_pop(struct diana *diana, struct _sparseIntegerSet *is) {
 	if(is->population) {
 		return is->dense[--is->population];
 	}
@@ -81,39 +85,43 @@ static DLuint _sparseIntegerSet_pop(struct diana *diana, struct _sparseIntegerSe
 // - more memory effecient
 // - used for tracking components each entity is using
 // - and for the active entities
-static void _bits_set(DLubyte *bytes, DLuint bit) {
+static int _bits_set(unsigned char *bytes, unsigned int bit) {
+	int r = !!(bytes[bit >> 3] & (1 << (bit & 7)));
 	bytes[bit >> 3] |= (1 << (bit & 7));
+	return r;
 }
 
-static DLboolean _bits_isSet(DLubyte *bytes, DLuint bit) {
+static int _bits_isSet(unsigned char *bytes, unsigned int bit) {
 	return !!(bytes[bit >> 3] & (1 << (bit & 7)));
 }
 
-static void _bits_clear(DLubyte *bytes, DLuint bit) {
+static int _bits_clear(unsigned char *bytes, unsigned int bit) {
+	int r = !!(bytes[bit >> 3] & (1 << (bit & 7)));
 	bytes[bit >> 3] &= ~(1 << (bit & 7));
+	return r;
 }
 
 // ============================================================================
 
 struct _denseIntegerSet {
-	DLubyte *bytes;
-	DLuint capacity;
+	unsigned char *bytes;
+	unsigned int capacity;
 };
 
-static DLboolean _denseIntegerSet_contains(struct diana *diana, struct _denseIntegerSet *is, DLuint i) {
+static int _denseIntegerSet_contains(struct diana *diana, struct _denseIntegerSet *is, unsigned int i) {
 	return i < is->capacity && _bits_isSet(is->bytes, i);
 }
 
-static void _denseIntegerSet_insert(struct diana *diana, struct _denseIntegerSet *is, DLuint i) {
+static void _denseIntegerSet_insert(struct diana *diana, struct _denseIntegerSet *is, unsigned int i) {
 	if(i >= is->capacity) {
-		DLuint newCapacity = (i + 1) * 1.5;
+		unsigned int newCapacity = (i + 1) * 1.5;
 		is->bytes = _realloc(diana, is->bytes, (is->capacity + 7) >> 3, (newCapacity + 7) >> 3);
 		is->capacity = newCapacity;
 	}
 	_bits_set(is->bytes, i);
 }
 
-static void _denseIntegerSet_delete(struct diana *diana, struct _denseIntegerSet *is, DLuint i) {
+static void _denseIntegerSet_delete(struct diana *diana, struct _denseIntegerSet *is, unsigned int i) {
 	if(i < is->capacity) {
 		_bits_clear(is->bytes, i);
 	}
@@ -123,32 +131,42 @@ static void _denseIntegerSet_clear(struct diana *diana, struct _denseIntegerSet 
 	memset(is->bytes, 0, (is->capacity + 7) >> 3);
 }
 
-static DLboolean _denseIntegerSet_isEmpty(struct diana *diana, struct _denseIntegerSet *is) {
-	DLuint n = (is->capacity + 7) >> 3, i = 0;
+static int _denseIntegerSet_isEmpty(struct diana *diana, struct _denseIntegerSet *is) {
+	unsigned int n = (is->capacity + 7) >> 3, i = 0;
 	for(; i < n; i++) {
 		if(is->bytes[i]) {
-			return DL_FALSE;
+			return 0;
 		}
 	}
-	return DL_TRUE;
+	return 1;
 }
 
 // ============================================================================
 // PRIMARY DATA
+struct _componentBag {
+	unsigned int count;
+	unsigned int *indexes;
+};
+
 struct _component {
 	const char *name;
 	size_t size;
 	size_t offset;
+	unsigned int flags;
+
+	void *data;
+	struct _sparseIntegerSet freeDataIndexes;
+	unsigned int nextDataIndex;
 };
 
 struct _system {
 	const char *name;
-	void *user_data;
-	void (*started)(struct diana *, void *user_data);
-	void (*process)(struct diana *, void *user_data, DLuint entity, DLfloat delta);
-	void (*ended)(struct diana *, void *user_data);
-	void (*subscribed)(struct diana *, void *user_data, DLuint entity);
-	void (*unsubscribed)(struct diana *, void *user_data, DLuint entity);
+	void *userData;
+	void (*starting)(struct diana *, void *user_data);
+	void (*process)(struct diana *, void *user_data, unsigned int entity, float delta);
+	void (*ending)(struct diana *, void *user_data);
+	void (*subscribed)(struct diana *, void *user_data, unsigned int entity);
+	void (*unsubscribed)(struct diana *, void *user_data, unsigned int entity);
 	struct _sparseIntegerSet watch;
 	struct _sparseIntegerSet exclude;
 	struct _sparseIntegerSet entities;
@@ -156,35 +174,35 @@ struct _system {
 
 struct _manager {
 	const char *name;
-	void *user_data;
-	void (*added)(struct diana *diana, void *user_data, DLenum callback, DLuint entity);
-	void (*enabled)(struct diana *diana, void *user_data, DLenum callback, DLuint entity);
-	void (*disabled)(struct diana *diana, void *user_data, DLenum callback, DLuint entity);
-	void (*deleted)(struct diana *diana, void *user_data, DLenum callback, DLuint entity);
+	void *userData;
+	void (*added)(struct diana *diana, void *userData, unsigned int entity);
+	void (*enabled)(struct diana *diana, void *userData, unsigned int entity);
+	void (*disabled)(struct diana *diana, void *userData, unsigned int entity);
+	void (*deleted)(struct diana *diana, void *userData, unsigned int entity);
 };
 
 struct diana {
 	void *(*malloc)(size_t);
 	void (*free)(void *);
 
-	DLenum error;
-	DLboolean initialized;
-	DLboolean processing;
+	unsigned int error;
+	int initialized;
+	int processing;
 
 	// manage the entity ids
 	// reuse deleted entity ids
 	struct _sparseIntegerSet freeEntityIds;
-	DLuint nextEntityId;
+	unsigned int nextEntityId;
 
 	// entity data
 	// first 'column' is bits of components defined
 	// the rest are the components
-	DLuint dataWidth;
-	DLuint dataHeight;
-	DLuint dataHeightCapacity;
+	unsigned int dataWidth;
+	unsigned int dataHeight;
+	unsigned int dataHeightCapacity;
 	void *data;
 
-	DLuint processingDataHeight;
+	unsigned int processingDataHeight;
 	void **processingData;
 
 	// buffer entity status notifications
@@ -196,18 +214,21 @@ struct diana {
 	// all active entities (added and enabled)
 	struct _denseIntegerSet active;
 
-	DLuint num_components;
+	unsigned int num_components;
 	struct _component *components;
 
-	DLuint num_systems;
+	unsigned int num_systems;
 	struct _system *systems;
 
-	DLuint num_managers;
+	unsigned int num_managers;
 	struct _manager *managers;
 };
 
 // ============================================================================
 // UTILITY
+#define FOREACH_SPARSEINTSET(I, N, S) for(N = 0, I = (S)->dense ? (S)->dense[N] : 0; N < (S)->population; N++, I = (S)->dense[N])
+#define FOREACH_ARRAY(T, N, A, S) for(N = 0, T = A; N < S; N++, T++)
+
 static void *_malloc(struct diana *diana, size_t size) {
 	void *r = diana->malloc(size);
 	if(r == NULL) {
@@ -238,6 +259,10 @@ static void *_realloc(struct diana *diana, void *ptr, size_t oldSize, size_t new
 	if(oldSize == newSize) {
 		return ptr;
 	}
+	if(newSize == 0) {
+		diana->free(ptr);
+		return NULL;
+	}
 	void *r = diana->malloc(newSize);
 	if(r == NULL) {
 		diana->error = DL_ERROR_OUT_OF_MEMORY;
@@ -253,8 +278,6 @@ static void *_realloc(struct diana *diana, void *ptr, size_t oldSize, size_t new
 	return r;
 }
 
-// ============================================================================
-// DIANA
 struct diana *allocate_diana(void *(*malloc)(size_t), void (*free)(void *)) {
 	struct diana *r = malloc(sizeof(*r));
 	if(r != NULL) {
@@ -265,17 +288,18 @@ struct diana *allocate_diana(void *(*malloc)(size_t), void (*free)(void *)) {
 	return r;
 }
 
-DLenum diana_getError(struct diana *diana) {
-	DLenum r = diana->error;
+unsigned int diana_getError(struct diana *diana) {
+	unsigned int r = diana->error;
 	diana->error = DL_ERROR_NONE;
 	return r;
 }
 
-#define FOREACH_SPARSEINTSET(I, N, S) for(N = 0, I = (S)->dense ? (S)->dense[N] : 0; N < (S)->population; N++, I = (S)->dense[N])
-#define FOREACH_ARRAY(T, N, A, S) for(N = 0, T = A; N < S; N++, T++)
+void diana_free(struct diana *diana) { }
 
+// ============================================================================
+// INITIALIZATION TIME
 void diana_initialize(struct diana *diana) {
-	DLuint extraBytes = (diana->num_components + 7) >> 3, n;
+	unsigned int extraBytes = (diana->num_components + 7) >> 3, n;
 	struct _component *c;
 
 	if(diana->initialized) {
@@ -289,116 +313,17 @@ void diana_initialize(struct diana *diana) {
 
 	diana->dataWidth += extraBytes;
 
-	diana->initialized = DL_TRUE;
-}
-
-static void _check(struct diana *, struct _system *, DLuint entity);
-static void _remove(struct diana *, struct _system *, DLuint entity);
-
-void diana_process(struct diana *diana, DLfloat delta) {
-	DLuint entity, i, j;
-	struct _system *system;
-	struct _manager *manager;
-
-	diana->processing = DL_TRUE;
-
-	FOREACH_SPARSEINTSET(entity, i, &diana->added) {
-		/*
-		FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
-			_check(diana, system, entity);
-		}
-		*/
-		FOREACH_ARRAY(manager, j, diana->managers, diana->num_managers) {
-			if(manager->added != NULL) {
-				manager->added(diana, manager->user_data, DL_ENTITY_ADDED, entity);
-			}
-		}
-	}
-	_sparseIntegerSet_clear(diana, &diana->added);
-
-	FOREACH_SPARSEINTSET(entity, i, &diana->enabled) {
-		FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
-			_check(diana, system, entity);
-		}
-		FOREACH_ARRAY(manager, j, diana->managers, diana->num_managers) {
-			if(manager->enabled != NULL) {
-				manager->enabled(diana, manager->user_data, DL_ENTITY_ENABLED, entity);
-			}
-		}
-		_denseIntegerSet_insert(diana, &diana->active, entity);
-	}
-	_sparseIntegerSet_clear(diana, &diana->enabled);
-
-	FOREACH_SPARSEINTSET(entity, i, &diana->disabled) {
-		FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
-			_remove(diana, system, entity);
-		}
-		FOREACH_ARRAY(manager, j, diana->managers, diana->num_managers) {
-			if(manager->disabled != NULL) {
-				manager->disabled(diana, manager->user_data, DL_ENTITY_DISABLED, entity);
-			}
-		}
-		_denseIntegerSet_delete(diana, &diana->active, entity);
-	}
-	_sparseIntegerSet_clear(diana, &diana->disabled);
-
-	FOREACH_SPARSEINTSET(entity, i, &diana->deleted) {
-		FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
-			_remove(diana, system, entity);
-		}
-		FOREACH_ARRAY(manager, j, diana->managers, diana->num_managers) {
-			if(manager->deleted != NULL) {
-				manager->deleted(diana, manager->user_data, DL_ENTITY_DELETED, entity);
-			}
-		}
-		_sparseIntegerSet_insert(diana, &diana->freeEntityIds, entity);
-	}
-	_sparseIntegerSet_clear(diana, &diana->deleted);
-
-	FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
-		if(system->started != NULL) {
-			system->started(diana, system->user_data);
-		}
-		FOREACH_SPARSEINTSET(entity, i, &system->entities) {
-			system->process(diana, system->user_data, entity, delta);
-		}
-		if(system->ended != NULL) {
-			system->ended(diana, system->user_data);
-		}
-	}
-
-	diana->processing = DL_FALSE;
-
-	// take care of spawns that happen during processing
-	if(diana->processingData != NULL) {
-		DLuint newDataHeight = diana->dataHeight + diana->processingDataHeight, i;
-
-		if(newDataHeight >= diana->dataHeightCapacity) {
-			DLuint newDataHeightCapacity = (newDataHeight + 1) * 1.5;
-			diana->data = _realloc(diana, diana->data, diana->dataWidth * diana->dataHeightCapacity, diana->dataWidth * newDataHeightCapacity);
-			diana->dataHeightCapacity = newDataHeightCapacity;
-		}
-
-		for(i = 0; i < diana->processingDataHeight; i++) {
-			memcpy((unsigned char *)diana->data + (diana->dataWidth * (diana->dataHeight + i)), diana->processingData[i], diana->dataWidth);
-			diana->free(diana->processingData[i]);
-		}
-		diana->free(diana->processingData);
-
-		diana->dataHeight = newDataHeight;
-
-		diana->processingData = NULL;
-		diana->processingDataHeight = 0;
-	}
-}
-
-void diana_free(struct diana *diana) {
-	// TODO
+	diana->initialized = 1;
 }
 
 // ============================================================================
-// COMPONENT
-DLuint diana_registerComponent(struct diana *diana, const char *name, size_t size) {
+// component
+unsigned int diana_createComponent(
+	struct diana *diana,
+	const char *name,
+ 	size_t size,
+ 	unsigned int flags
+) {
 	struct _component c;
 
 	if(diana->initialized) {
@@ -412,8 +337,24 @@ DLuint diana_registerComponent(struct diana *diana, const char *name, size_t siz
 		return 0;
 	}
 	c.size = size;
+	c.flags = flags;
 	c.offset = diana->dataWidth;
-	diana->dataWidth += size;
+
+	if(flags & DL_COMPONENT_MULTIPLE_BIT) {
+		diana->dataWidth += sizeof(struct _componentBag);
+	} else if(flags & DL_COMPONENT_INDEXED_BIT) {
+		diana->dataWidth += sizeof(unsigned int);
+	} else {
+		diana->dataWidth += size;
+	}
+
+	if(flags & DL_COMPONENT_LIMITED_BIT) {
+		unsigned int count = (flags >> 3);
+		c.data = _malloc(diana, c.size * count);
+		while(count) {
+			_sparseIntegerSet_insert(diana, &c.freeDataIndexes, count--);
+		}
+	}
 
 	diana->components = _realloc(diana, diana->components, sizeof(*diana->components) * diana->num_components, sizeof(*diana->components) * (diana->num_components + 1));
 	diana->components[diana->num_components++] = c;
@@ -422,8 +363,17 @@ DLuint diana_registerComponent(struct diana *diana, const char *name, size_t siz
 }
 
 // ============================================================================
-// SYSTEM
-DLuint diana_registerSystem(struct diana *diana, const char *name, void (*process)(struct diana *, void *user_data, DLuint entity, DLfloat delta), void *user_data) {
+// system
+unsigned int diana_createSystem(
+	struct diana *diana,
+	const char *name,
+	void (*starting)(struct diana *, void *),
+	void (*process)(struct diana *, void *, unsigned int, float),
+	void (*ending)(struct diana *, void *),
+	void (*subscribed)(struct diana *, void *, unsigned int),
+	void (*unsubscribed)(struct diana *, void *, unsigned int),
+	void *userData
+) {
 	struct _system s;
 
 	if(diana->initialized) {
@@ -436,8 +386,12 @@ DLuint diana_registerSystem(struct diana *diana, const char *name, void (*proces
 	if(s.name == NULL) {
 		return 0;
 	}
-	s.user_data = user_data;
+	s.starting = starting;
 	s.process = process;
+	s.ending = ending;
+	s.subscribed = subscribed;
+	s.unsubscribed = unsubscribed;
+	s.userData = userData;
 
 	diana->systems = _realloc(diana, diana->systems, sizeof(*diana->systems) * diana->num_systems, sizeof(*diana->systems) * (diana->num_systems + 1));
 	diana->systems[diana->num_systems++] = s;
@@ -445,55 +399,7 @@ DLuint diana_registerSystem(struct diana *diana, const char *name, void (*proces
 	return diana->num_systems - 1;
 }
 
-void diana_setSystemProcessCallback(struct diana *diana, DLuint system, void (*process)(struct diana *, void *user_data, DLuint entity, DLfloat delta)) {
-	if(system >= diana->num_systems) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-
-	diana->systems[system].process = process;
-}
-
-void diana_setSystemProcessCallbacks(struct diana *diana, DLuint system, void (*started)(struct diana *, void *user_data), void (*process)(struct diana *, void *user_data, DLuint entity, DLfloat delta), void (*ended)(struct diana *, void *user_data)) {
-	if(system >= diana->num_systems) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-
-	diana->systems[system].started = started;
-	diana->systems[system].process = process;
-	diana->systems[system].ended = ended;
-}
-
-void diana_setSystemEventCallback(struct diana *diana, DLuint system, DLenum event, void (*callback)(struct diana *, void *user_data, DLuint entity)) {
-	if(system >= diana->num_systems) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-
-	switch(event) {
-	case DL_SUBSCRIBED:
-		diana->systems[system].subscribed = callback;
-		break;
-	case DL_UNSUBSCRIBED:
-		diana->systems[system].unsubscribed = callback;
-		break;
-	default:
-		diana->error = DL_ERROR_INVALID_VALUE;
-		break;
-	}
-}
-
-void diana_setSystemUserData(struct diana *diana, DLuint system, void *user_data) {
-	if(system >= diana->num_systems) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-
-	diana->systems[system].user_data = user_data;
-}
-
-void diana_watch(struct diana *diana, DLuint system, DLuint component) {
+void diana_watch(struct diana *diana, unsigned int system, unsigned int component) {
 	if(diana->initialized) {
 		diana->error = DL_ERROR_INVALID_OPERATION;
 		return;
@@ -512,7 +418,7 @@ void diana_watch(struct diana *diana, DLuint system, DLuint component) {
 	_sparseIntegerSet_insert(diana, &diana->systems[system].watch, component);
 }
 
-void diana_exclude(struct diana *diana, DLuint system, DLuint component) {
+void diana_exclude(struct diana *diana, unsigned int system, unsigned int component) {
 	if(diana->initialized) {
 		diana->error = DL_ERROR_INVALID_OPERATION;
 		return;
@@ -531,53 +437,17 @@ void diana_exclude(struct diana *diana, DLuint system, DLuint component) {
 	_sparseIntegerSet_insert(diana, &diana->systems[system].exclude, component);
 }
 
-static void *_getData(struct diana *, DLuint);
-
-static void _check(struct diana *diana, struct _system *system, DLuint entity) {
-	DLboolean already_included = _sparseIntegerSet_contains(diana, &system->entities, entity), wanted;
-	DLubyte *entity_components = (DLubyte *)_getData(diana, entity);
-	DLuint component, i;
-
-	wanted = DL_TRUE;
-
-	FOREACH_SPARSEINTSET(component, i, &system->watch) {
-		if(!(entity_components[component >> 3] & (1 << (component & 7)))) {
-			wanted = DL_FALSE;
-			break;
-		}
-	}
-
-	FOREACH_SPARSEINTSET(component, i, &system->exclude) {
-		if((entity_components[component >> 3] & (1 << (component & 7)))) {
-			wanted = DL_FALSE;
-			break;
-		}
-	}
-
-	if(already_included && !wanted) {
-		_remove(diana, system, entity);
-		if(system->unsubscribed != NULL) {
-			system->unsubscribed(diana, system->user_data, entity);
-		}
-		return;
-	}
-
-	if(wanted && !already_included) {
-		_sparseIntegerSet_insert(diana, &system->entities, entity);
-		if(system->subscribed != NULL) {
-			system->subscribed(diana, system->user_data, entity);
-		}
-		return;
-	}
-}
-
-static void _remove(struct diana *diana, struct _system *system, DLuint entity) {
-	_sparseIntegerSet_delete(diana, &system->entities, entity);
-}
-
 // ============================================================================
-// MANAGER
-DLuint diana_registerManager(struct diana *diana, const char *name, void *user_data) {
+// manager
+unsigned int diana_createManager(
+	struct diana *diana,
+	const char *name,
+	void (*added)(struct diana *, void *, unsigned int),
+	void (*enabled)(struct diana *, void *, unsigned int),
+	void (*disabled)(struct diana *, void *, unsigned int),
+	void (*deleted)(struct diana *, void *, unsigned int),
+	void *userData
+) {
 	struct _manager m;
 
 	if(diana->initialized) {
@@ -590,7 +460,11 @@ DLuint diana_registerManager(struct diana *diana, const char *name, void *user_d
 	if(m.name == NULL) {
 		return 0;
 	}
-	m.user_data = user_data;
+	m.added = added;
+	m.enabled = enabled;
+	m.disabled = disabled;
+	m.deleted = deleted;
+	m.userData = userData;
 
 	diana->managers = _realloc(diana, diana->managers, sizeof(*diana->managers) * diana->num_managers, sizeof(*diana->managers) * (diana->num_managers + 1));
 	diana->managers[diana->num_managers++] = m;
@@ -598,62 +472,156 @@ DLuint diana_registerManager(struct diana *diana, const char *name, void *user_d
 	return diana->num_managers - 1;
 }
 
-void diana_observe(struct diana *diana, DLuint manager, DLenum callback, void (*function)(struct diana *diana, void *user_data, DLenum callback, DLuint entity)) {
-	if(manager >= diana->num_managers) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-
-	switch(callback) {
-	case DL_ENTITY_ADDED:
-		diana->managers[manager].added = function;
-		break;
-	case DL_ENTITY_ENABLED:
-		diana->managers[manager].enabled = function;
-		break;
-	case DL_ENTITY_DISABLED:
-		diana->managers[manager].disabled = function;
-		break;
-	case DL_ENTITY_DELETED:
-		diana->managers[manager].deleted = function;
-		break;
-	default:
-		diana->error = DL_ERROR_INVALID_VALUE;
-	}
-}
-
-void diana_observeAll(struct diana *diana, DLuint manager, void (*function)(struct diana *diana, void *user_data, DLenum callback, DLuint entity)) {
-	if(manager >= diana->num_managers) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-
-	diana->managers[manager].added = function;
-	diana->managers[manager].enabled = function;
-	diana->managers[manager].disabled = function;
-	diana->managers[manager].deleted = function;
-}
-
-void diana_setManagerUserData(struct diana *diana, DLuint manager, void *user_data) {
-	if(manager >= diana->num_managers) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-
-	diana->managers[manager].user_data = user_data;
-}
-
 // ============================================================================
-// ENTITY
-static void *_getData(struct diana *diana, DLuint entity) {
+// RUNTIME
+static unsigned char *_getEntityData(struct diana *diana, unsigned int entity) {
 	if(entity >= diana->dataHeightCapacity) {
 		return diana->processingData[entity - diana->dataHeightCapacity];
 	}
 	return (void *)((unsigned char *)diana->data + (diana->dataWidth * entity));
 }
 
-DLuint diana_spawn(struct diana *diana) {
-	DLuint r;
+static void _subscribe(struct diana *diana, struct _system *system, unsigned int entity) {
+	int included = _sparseIntegerSet_insert(diana, &system->entities, entity);
+	if(!included && system->subscribed != NULL) {
+		system->subscribed(diana, system->userData, entity);
+	}
+}
+
+static void _unsubscribe(struct diana *diana, struct _system *system, unsigned int entity) {
+	int included = _sparseIntegerSet_delete(diana, &system->entities, entity);
+	if(included && system->unsubscribed != NULL) {
+		system->unsubscribed(diana, system->userData, entity);
+	}
+}
+
+static void _check(struct diana *diana, struct _system *system, unsigned int entity) {
+	unsigned char *entity_components = _getEntityData(diana, entity);
+	unsigned int component, i;
+	int wanted = 1;
+
+	FOREACH_SPARSEINTSET(component, i, &system->watch) {
+		if(!(entity_components[component >> 3] & (1 << (component & 7)))) {
+			wanted = 0;
+			break;
+		}
+	}
+
+	FOREACH_SPARSEINTSET(component, i, &system->exclude) {
+		if((entity_components[component >> 3] & (1 << (component & 7)))) {
+			wanted = 0;
+			break;
+		}
+	}
+
+	if(wanted) {
+		_subscribe(diana, system, entity);
+	} else {
+		_unsubscribe(diana, system, entity);
+	}
+}
+
+void diana_process(struct diana *diana, float delta) {
+	unsigned int entity, i, j;
+	struct _system *system;
+	struct _manager *manager;
+
+	diana->processing = 1;
+
+	FOREACH_SPARSEINTSET(entity, i, &diana->added) {
+		/*
+		FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
+			_check(diana, system, entity);
+		}
+		*/
+		FOREACH_ARRAY(manager, j, diana->managers, diana->num_managers) {
+			if(manager->added != NULL) {
+				manager->added(diana, manager->userData, entity);
+			}
+		}
+	}
+	_sparseIntegerSet_clear(diana, &diana->added);
+
+	FOREACH_SPARSEINTSET(entity, i, &diana->enabled) {
+		FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
+			_check(diana, system, entity);
+		}
+		FOREACH_ARRAY(manager, j, diana->managers, diana->num_managers) {
+			if(manager->enabled != NULL) {
+				manager->enabled(diana, manager->userData, entity);
+			}
+		}
+		_denseIntegerSet_insert(diana, &diana->active, entity);
+	}
+	_sparseIntegerSet_clear(diana, &diana->enabled);
+
+	FOREACH_SPARSEINTSET(entity, i, &diana->disabled) {
+		FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
+			_unsubscribe(diana, system, entity);
+		}
+		FOREACH_ARRAY(manager, j, diana->managers, diana->num_managers) {
+			if(manager->disabled != NULL) {
+				manager->disabled(diana, manager->userData, entity);
+			}
+		}
+		_denseIntegerSet_delete(diana, &diana->active, entity);
+	}
+	_sparseIntegerSet_clear(diana, &diana->disabled);
+
+	FOREACH_SPARSEINTSET(entity, i, &diana->deleted) {
+		FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
+			_unsubscribe(diana, system, entity);
+		}
+		FOREACH_ARRAY(manager, j, diana->managers, diana->num_managers) {
+			if(manager->deleted != NULL) {
+				manager->deleted(diana, manager->userData, entity);
+			}
+		}
+		_sparseIntegerSet_insert(diana, &diana->freeEntityIds, entity);
+	}
+	_sparseIntegerSet_clear(diana, &diana->deleted);
+
+	FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
+		if(system->starting != NULL) {
+			system->starting(diana, system->userData);
+		}
+		FOREACH_SPARSEINTSET(entity, i, &system->entities) {
+			system->process(diana, system->userData, entity, delta);
+		}
+		if(system->ending != NULL) {
+			system->ending(diana, system->userData);
+		}
+	}
+
+	diana->processing = 0;
+
+	// take care of spawns that happen during processing
+	if(diana->processingData != NULL) {
+		unsigned int newDataHeight = diana->dataHeight + diana->processingDataHeight, i;
+
+		if(newDataHeight >= diana->dataHeightCapacity) {
+			unsigned int newDataHeightCapacity = (newDataHeight + 1) * 1.5;
+			diana->data = _realloc(diana, diana->data, diana->dataWidth * diana->dataHeightCapacity, diana->dataWidth * newDataHeightCapacity);
+			diana->dataHeightCapacity = newDataHeightCapacity;
+		}
+
+		for(i = 0; i < diana->processingDataHeight; i++) {
+			memcpy((unsigned char *)diana->data + (diana->dataWidth * (diana->dataHeight + i)), diana->processingData[i], diana->dataWidth);
+			diana->free(diana->processingData[i]);
+		}
+		diana->free(diana->processingData);
+
+		diana->dataHeight = newDataHeight;
+
+		diana->processingData = NULL;
+		diana->processingDataHeight = 0;
+	}
+}
+
+// ============================================================================
+// entity
+unsigned int diana_spawn(struct diana *diana) {
+	unsigned int r;
 
 	if(!diana->initialized) {
 		diana->error = DL_ERROR_INVALID_OPERATION;
@@ -684,7 +652,7 @@ DLuint diana_spawn(struct diana *diana) {
 
 			diana->processingData[diana->processingDataHeight++] = entityData;
 		} else {
-			DLuint newDataHeightCapacity = diana->dataHeight * 1.5;
+			unsigned int newDataHeightCapacity = diana->dataHeight * 1.5;
 			diana->data = _realloc(diana, diana->data, diana->dataWidth * diana->dataHeightCapacity, diana->dataWidth * newDataHeightCapacity);
 			diana->dataHeightCapacity = newDataHeightCapacity;
 		}
@@ -693,327 +661,203 @@ DLuint diana_spawn(struct diana *diana) {
 	return r;
 }
 
-void diana_setComponent(struct diana *diana, DLuint entity, DLuint component, void const * data) {
-	DLubyte *entity_data;
-
+void diana_signal(struct diana *diana, unsigned int entity, unsigned int signal) {
 	if(!diana->initialized) {
 		diana->error = DL_ERROR_INVALID_OPERATION;
 		return;
 	}
 
-	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
+	switch(signal) {
+	case DL_ENTITY_ADDED:
+		_sparseIntegerSet_insert(diana, &diana->added, entity);
+		_sparseIntegerSet_insert(diana, &diana->enabled, entity);
+		_sparseIntegerSet_delete(diana, &diana->disabled, entity);
+		_sparseIntegerSet_delete(diana, &diana->deleted, entity);
+		break;
+	case DL_ENTITY_ENABLED:
+		_sparseIntegerSet_insert(diana, &diana->enabled, entity);
+		_sparseIntegerSet_delete(diana, &diana->disabled, entity);
+		_sparseIntegerSet_delete(diana, &diana->deleted, entity);
+		break;
+	case DL_ENTITY_DISABLED:
+		_sparseIntegerSet_delete(diana, &diana->enabled, entity);
+		_sparseIntegerSet_insert(diana, &diana->disabled, entity);
+		_sparseIntegerSet_delete(diana, &diana->deleted, entity);
+		break;
+	case DL_ENTITY_DELETED:
+		_sparseIntegerSet_delete(diana, &diana->added, entity);
+		_sparseIntegerSet_delete(diana, &diana->enabled, entity);
+		_sparseIntegerSet_insert(diana, &diana->disabled, entity);
+		_sparseIntegerSet_insert(diana, &diana->deleted, entity);
+		break;
+	default:
 		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+	}
+}
+
+// single
+void diana_setComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data) {
+	diana_setComponentI(diana, entity, component, 0, data);
+}
+
+void * diana_getComponent(struct diana *diana, unsigned int entity, unsigned int component) {
+	diana_getComponentI(diana, entity, component, 0);
+}
+
+void diana_removeComponent(struct diana *diana, unsigned int entity, unsigned int component) {
+	diana_removeComponentI(diana, entity, component, 0);
+}
+
+// multiple
+unsigned int diana_getComponentCount(struct diana *diana, unsigned int entity, unsigned int component) {
+	unsigned char *entityData = _getEntityData(diana, entity);
+	struct _component *c = diana->components + component;
+
+	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
+		struct _componentBag *bag = (struct _componentBag *)(entityData + c->offset);
+		return bag->count;
+	} else {
+		return _bits_isSet(entityData, component);
+	}
+}
+
+void diana_appendComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data) {
+	unsigned char *entityData = _getEntityData(diana, entity);
+	struct _component *c = diana->components + component;
+
+	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
+		diana_setComponentI(diana, entity, component, diana_getComponentCount(diana, entity, component), data);
+	} else {
+		diana_setComponentI(diana, entity, component, 0, data);
+	}
+}
+
+void diana_removeComponents(struct diana *diana, unsigned int entity, unsigned int component) {
+	unsigned char *entityData = _getEntityData(diana, entity);
+	struct _component *c = diana->components + component;
+	unsigned int *index;
+	unsigned int i;
+
+	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
+		struct _componentBag *bag = (struct _componentBag *)(entityData + c->offset);
+		FOREACH_ARRAY(index, i, bag->indexes, bag->count) {
+			diana_removeComponentI(diana, entity, component, *index);
+		}
+	} else {
+		diana_removeComponentI(diana, entity, component, 0);
+	}
+}
+
+// low level
+static int _getAComponentIndex(struct diana *diana, struct _component *c) {
+	unsigned int index;
+
+	if(_sparseIntegerSet_isEmpty(diana, &c->freeDataIndexes)) {
+		if(c->flags & DL_COMPONENT_LIMITED_BIT) {
+			diana->error = DL_ERROR_FULL_COMPONENT;
+			return -1;
+		}
+
+		index = c->nextDataIndex++;
+		c->data = _realloc(diana, c->data, c->size * index, c->size * c->nextDataIndex);
+	} else {
+		index = _sparseIntegerSet_pop(diana, &c->freeDataIndexes);
 	}
 
-	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+	return index;
+}
+
+void diana_setComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, const void * data) {
+	unsigned char *entityData = _getEntityData(diana, entity);
+	struct _component *c = diana->components + component;
+	int defined = _bits_set(entityData, component);
+	void *componentData = NULL;
+
+	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
+		struct _componentBag *bag = (struct _componentBag *)(entityData + c->offset);
+		unsigned int index;
+
+		if(i >= bag->count) {
+			index = _getAComponentIndex(diana, c);
+
+			if(index == -1) {
+				return;
+			}
+
+			bag->indexes = _realloc(diana, bag->indexes, sizeof(unsigned int) * bag->count, sizeof(unsigned int) * (bag->count + 1));
+			bag->indexes[i = bag->count++] = index;
+		}
+
+		componentData = (void *)((unsigned char *)c->data + c->size * bag->indexes[i]);
+	} else if(c->flags & DL_COMPONENT_INDEXED_BIT) {
+		unsigned int *index = (unsigned int *)(entityData + c->offset);
+
+		if(!defined) {
+			*index = _getAComponentIndex(diana, c);
+
+			if(*index == -1) {
+				return;
+			}
+		}
+
+		componentData = (void *)((unsigned char *)c->data + c->size * *index);
+	} else {
+		componentData = (void *)(entityData + c->offset);
 	}
-
-	entity_data = (DLubyte *)_getData(diana, entity);
-
-	// can only add a component if its inactive
-	// no error if the component is already set
-	if(_denseIntegerSet_contains(diana, &diana->active, entity) && !_bits_isSet(entity_data, component)) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
-	}
-
-	_bits_set(entity_data, component);
 
 	if(data != NULL) {
-		struct _component *c = &diana->components[component];
-		memcpy(entity_data + c->offset, data, c->size);
+		memcpy(componentData, data, c->size);
 	}
 }
 
-void *diana_getComponent(struct diana *diana, DLuint entity, DLuint component) {
-	DLubyte *entity_data;
+void * diana_getComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i) {
+	unsigned char *entityData = _getEntityData(diana, entity);
+	struct _component *c = diana->components + component;
 
-	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
+	if(!_bits_isSet(entityData, component)) {
 		return NULL;
 	}
 
-	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return NULL;
-	}
-
-	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return NULL;
-	}
-
-	entity_data = (DLubyte *)_getData(diana, entity);
-
-	if(!_bits_isSet(entity_data, component)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return NULL;
-	}
-
-	return entity_data + diana->components[component].offset;
-}
-
-void diana_removeComponent(struct diana *diana, DLuint entity, DLuint component) {
-	struct _component *c;
-	DLubyte *components;
-
-	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
-	}
-
-	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-
-	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-
-	// can only remove a component from an inactive entity
-	// no error if the component is not already set
-	if(_denseIntegerSet_contains(diana, &diana->active, entity)) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
-	}
-
-	components = (DLubyte *)_getData(diana, entity);
-	_bits_clear(components, component);
-}
-
-void diana_add(struct diana *diana, DLuint entity) {
-	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
-	}
-
-	// entities start enabled
-	_sparseIntegerSet_insert(diana, &diana->added, entity);
-	_sparseIntegerSet_insert(diana, &diana->enabled, entity);
-	_sparseIntegerSet_delete(diana, &diana->disabled, entity);
-	_sparseIntegerSet_delete(diana, &diana->deleted, entity);
-}
-
-void diana_enable(struct diana *diana, DLuint entity) {
-	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
-	}
-
-	// if it was disabled or deleted, it no longer is
-	_sparseIntegerSet_insert(diana, &diana->enabled, entity);
-	_sparseIntegerSet_delete(diana, &diana->disabled, entity);
-	_sparseIntegerSet_delete(diana, &diana->deleted, entity);
-}
-
-void diana_disable(struct diana *diana, DLuint entity) {
-	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
-	}
-
-	// if it was enabled or deleted, it no longer is
-	_sparseIntegerSet_delete(diana, &diana->enabled, entity);
-	_sparseIntegerSet_insert(diana, &diana->disabled, entity);
-	_sparseIntegerSet_delete(diana, &diana->deleted, entity);
-}
-
-void diana_delete(struct diana *diana, DLuint entity) {
-	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
-	}
-
-	// stop all processing on this entity
-	_sparseIntegerSet_delete(diana, &diana->added, entity);
-	_sparseIntegerSet_delete(diana, &diana->enabled, entity);
-	_sparseIntegerSet_insert(diana, &diana->disabled, entity);
-	_sparseIntegerSet_insert(diana, &diana->deleted, entity);
-}
-
-// ============================================================================
-// INSPECT
-DLint diana_getI(struct diana *diana, DLenum property) {
-	switch(property) {
-	case DL_NUM_COMPONENTS:
-		return diana->num_components;
-	case DL_NUM_SYSTEMS:
-		return diana->num_systems;
-	case DL_NUM_MANAGERS:
-		return diana->num_managers;
-	default:
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return 0;
-	}
-}
-
-void diana_getIV(struct diana *diana, DLenum property, DLint *iv) {
-	switch(property) {
-	case DL_NUM_COMPONENTS:
-		*iv = diana->num_components;
-		break;
-	case DL_NUM_SYSTEMS:
-		*iv = diana->num_systems;
-		break;
-	case DL_NUM_MANAGERS:
-		*iv = diana->num_managers;
-		break;
-	default:
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-}
-
-void const * diana_getP(struct diana *diana, DLenum property) {
-	switch(property) {
-	default:
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return NULL;
-	}
-}
-
-void diana_getPV(struct diana *diana, DLenum property, void const * * pv) {
-	switch(property) {
-	default:
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
-	}
-}
-
-DLint diana_getObjectI(struct diana *diana, DLuint object, DLenum property) {
-	switch(property) {
-	case DL_COMPONENT_SIZE:
-		if(object < diana->num_components) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return 0;
+	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
+		struct _componentBag *bag = (struct _componentBag *)(entityData + c->offset);
+		if(i >= bag->count) {
+			return NULL;
 		}
-		return diana->components[object].size;
-	case DL_SYSTEM_NUM_WATCHES:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return 0;
-		}
-		return diana->systems[object].watch.population;
-	case DL_SYSTEM_NUM_ENTITIES:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return 0;
-		}
-		return diana->systems[object].entities.population;
-	default:
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return 0;
+		return (void *)((unsigned char *)c->data + c->size * bag->indexes[i]);
 	}
+
+	if(c->flags & DL_COMPONENT_INDEXED_BIT) {
+		unsigned int *index = (unsigned int *)(entityData + c->offset);
+		return (void *)((unsigned char *)c->data + c->size * *index);
+	}
+
+	return (void *)(entityData + c->offset);
 }
 
-void diana_getObjectIV(struct diana *diana, DLuint object, DLenum property, DLint *iv) {
-	DLuint i, j;
-	switch(property) {
-	case DL_COMPONENT_SIZE:
-		if(object >= diana->num_components) {
-			diana->error = DL_ERROR_INVALID_VALUE;
+void diana_removeComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i) {
+	unsigned char *entityData = _getEntityData(diana, entity);
+	struct _component *c = diana->components + component;
+
+	if(!_bits_clear(entityData, component)) {
+		return;
+	}
+
+	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
+		struct _componentBag *bag = (struct _componentBag *)(entityData + c->offset);
+		if(i >= bag->count) {
 			return;
 		}
-		*iv = diana->components[object].size;
-		break;
-	case DL_SYSTEM_NUM_WATCHES:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return;
-		}
-		*iv = diana->systems[object].watch.population;
-		break;
-	case DL_SYSTEM_WATCHES:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return;
-		}
-		FOREACH_SPARSEINTSET(i, j, &diana->systems[object].watch) {
-			*iv++ = i;
-		}
-		break;
-	case DL_SYSTEM_NUM_ENTITIES:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return;
-		}
-		*iv = diana->systems[object].entities.population;
-		break;
-	case DL_SYSTEM_ENTITIES:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return;
-		}
-		FOREACH_SPARSEINTSET(i, j, &diana->systems[object].entities) {
-			*iv++ = i;
-		}
-		break;
-	default:
-		diana->error = DL_ERROR_INVALID_VALUE;
+		_sparseIntegerSet_insert(diana, &c->freeDataIndexes, bag->indexes[i]);
+		memcpy(bag->indexes + i, bag->indexes + i + 1, bag->count - i * sizeof(unsigned int));
+		bag->indexes = _realloc(diana, bag->indexes, sizeof(unsigned int) * bag->count, sizeof(unsigned int) * (bag->count - 1));
+		bag->count--;
 		return;
 	}
-}
 
-void const * diana_getObjectP(struct diana *diana, DLuint object, DLenum property) {
-	switch(property) {
-	case DL_ENTITY_ADDED:
-	case DL_ENTITY_ENABLED:
-	case DL_ENTITY_DISABLED:
-	case DL_ENTITY_DELETED:
-	case DL_SUBSCRIBED:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return NULL;
-		}
-		return diana->systems[object].subscribed;
-	case DL_UNSUBSCRIBED:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return NULL;
-		}
-		return diana->systems[object].unsubscribed;
-	case DL_PROCESSING_STARTED:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return NULL;
-		}
-		return diana->systems[object].started;
-	case DL_PROCESSING_ENDED:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return NULL;
-		}
-		return diana->systems[object].ended;
-	case DL_COMPONENT_NAME:
-		if(object >= diana->num_components) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return NULL;
-		}
-		return diana->components[object].name;
-	case DL_SYSTEM_NAME:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return NULL;
-		}
-		return diana->systems[object].name;
-	case DL_SYSTEM_PROCESS:
-		if(object >= diana->num_systems) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return NULL;
-		}
-		return diana->systems[object].process;
-	case DL_MANAGER_NAME:
-	default:
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return NULL;
+	if(c->flags & DL_COMPONENT_INDEXED_BIT) {
+		unsigned int *index = (unsigned int *)(entityData + c->offset);
+		_sparseIntegerSet_insert(diana, &c->freeDataIndexes, *index);
+		*index = 0;
+		return;
 	}
-}
-
-void diana_getObjectPV(struct diana *diana, DLuint object, DLenum property, void const * * pv) {
-	*pv = diana_getObjectP(diana, object, property);
 }

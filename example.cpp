@@ -33,7 +33,7 @@ public:
 		watch<Velocity>();
 	}
 
-	virtual void process(Entity & entity, DLfloat delta) {
+	virtual void process(Entity & entity, float delta) {
 		Position &position = entity.getComponent<Position>();
 		Velocity &velocity = entity.getComponent<Velocity>();
 
@@ -53,7 +53,7 @@ public:
 		watch<Renderer>();
 	}
 
-	virtual void process(Entity & entity, DLfloat delta) {
+	virtual void process(Entity & entity, float delta) {
 		Position &position = entity.getComponent<Position>();
 		Renderer &renderer = entity.getComponent<Renderer>();
 

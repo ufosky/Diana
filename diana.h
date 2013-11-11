@@ -11,118 +11,115 @@ extern "C" {
 
 #include <stddef.h>
 
-typedef int DLint;
-typedef unsigned int DLuint;
-typedef unsigned int DLenum;
-typedef unsigned char DLubyte;
-typedef float DLfloat;
-typedef char DLboolean;
-
-// boolean
-#define DL_FALSE 0
-#define DL_TRUE  1
-
 // errors
-#define DL_ERROR_NONE              0x0000
-#define DL_ERROR_OUT_OF_MEMORY     0x0001
-#define DL_ERROR_INVALID_VALUE     0x0002
-#define DL_ERROR_INVALID_OPERATION 0x0003
+enum {
+	DL_ERROR_NONE,
+	DL_ERROR_OUT_OF_MEMORY,
+	DL_ERROR_INVALID_VALUE,
+	DL_ERROR_INVALID_OPERATION,
+	DL_ERROR_FULL_COMPONENT
+};
 
-// events
-#define DL_ENTITY_ADDED       0x1000
-#define DL_ENTITY_ENABLED     0x1001
-#define DL_ENTITY_DISABLED    0x1002
-#define DL_ENTITY_DELETED     0x1003
-#define DL_SUBSCRIBED         0x1004
-#define DL_UNSUBSCRIBED       0x1005
-#define DL_PROCESSING_STARTED 0x1006
-#define DL_PROCESSING_ENDED   0x1007
+// component flags
+#define DL_COMPONENT_INDEXED_BIT  1
+#define DL_COMPONENT_MULTIPLE_BIT 2
+#define DL_COMPONENT_LIMITED_BIT  4
 
-// inspection
-#define DL_NUM_COMPONENTS      0x2000
-#define DL_COMPONENT_NAME      0x2001
-#define DL_COMPONENT_SIZE      0x2002
-#define DL_NUM_SYSTEMS         0x2003
-#define DL_SYSTEM_NAME         0x2004
-#define DL_SYSTEM_PROCESS      0x2005
-#define DL_SYSTEM_NUM_WATCHES  0x2006
-#define DL_SYSTEM_WATCHES      0x2007
-#define DL_SYSTEM_NUM_ENTITIES 0x2008
-#define DL_SYSTEM_ENTITIES     0x2009
-#define DL_NUM_MANAGERS        0x2010
-#define DL_MANAGER_NAME        0x2011
-#define DL_MANAGER_NUM_OBSERVE 0x2012
-#define DL_MANAGER_USER_DATA   0x2013
-#define DL_SYSTEM_USER_DATA    0x2014
+#define DL_COMPONENT_FLAG_INLINE     0
+#define DL_COMPONENT_FLAG_INDEXED    DL_COMPONENT_INDEXED_BIT
+#define DL_COMPONENT_FLAG_MULTIPLE   (DL_COMPONENT_INDEXED_BIT | DL_COMPONENT_MULTIPLE_BIT)
+#define DL_COMPONENT_FLAG_LIMITED(X) (DL_COMPONENT_INDEXED_BIT | DL_COMPONENT_FLAG_LIMITED_BIT | ((X) << 3))
 
+// entity signal
+enum {
+	DL_ENTITY_ADDED,
+	DL_ENTITY_ENABLED,
+	DL_ENTITY_DISABLED,
+	DL_ENTITY_DELETED
+};
+
+// ============================================================================
+// DIANA
 struct diana;
 
 struct diana *allocate_diana(void *(*malloc)(size_t), void (*free)(void *));
 
-DLenum diana_getError(struct diana *);
-
-void diana_initialize(struct diana *);
-
-void diana_process(struct diana *, DLfloat delta);
+unsigned int diana_getError(struct diana *);
 
 void diana_free(struct diana *);
 
-// COMPONENT
-DLuint diana_registerComponent(struct diana *diana, const char *name, size_t size);
+// ============================================================================
+// INITIALIZATION TIME
+void diana_initialize(struct diana *);
 
-// SYSTEM
-DLuint diana_registerSystem(struct diana *diana, const char *name, void (*process)(struct diana *, void *user_data, DLuint entity, DLfloat delta), void *user_data);
+// ============================================================================
+// component
+unsigned int diana_createComponent(
+	struct diana *diana,
+	const char *name,
+ 	size_t size,
+ 	unsigned int flags
+);
 
-void diana_setSystemProcessCallback(struct diana *diana, DLuint system, void (*process)(struct diana *, void *user_data, DLuint entity, DLfloat delta));
+// ============================================================================
+// system
+unsigned int diana_createSystem(
+	struct diana *diana,
+	const char *name,
+	void (*starting)(struct diana *, void *),
+	void (*process)(struct diana *, void *, unsigned int, float),
+	void (*ending)(struct diana *, void *),
+	void (*subscribed)(struct diana *, void *, unsigned int),
+	void (*unsubscribed)(struct diana *, void *, unsigned int),
+	void *userData
+);
 
-void diana_setSystemProcessCallbacks(struct diana *diana, DLuint system, void (*started)(struct diana *, void *user_data), void (*process)(struct diana *, void *user_data, DLuint entity, DLfloat delta), void (*ended)(struct diana *, void *user_data));
+void diana_watch(struct diana *diana, unsigned int system, unsigned int component);
 
-void diana_setSystemEventCallback(struct diana *diana, DLuint system, DLenum event, void (*callback)(struct diana *, void *user_data, DLuint entity));
+void diana_exclude(struct diana *diana, unsigned int system, unsigned int component);
 
-void diana_setSystemUserData(struct diana *diana, DLuint system, void *user_data);
+// ============================================================================
+// manager
+unsigned int diana_createManager(
+	struct diana *diana,
+	const char *name,
+	void (*added)(struct diana *, void *, unsigned int),
+	void (*enabled)(struct diana *, void *, unsigned int),
+	void (*disabled)(struct diana *, void *, unsigned int),
+	void (*deleted)(struct diana *, void *, unsigned int),
+	void *userData
+);
 
-void diana_watch(struct diana *diana, DLuint system, DLuint component);
+// ============================================================================
+// RUNTIME
+void diana_process(struct diana *, float delta);
 
-void diana_exclude(struct diana *diana, DLuint system, DLuint component);
+// ============================================================================
+// entity
+unsigned int diana_spawn(struct diana *diana);
 
-// MANAGER
-DLuint diana_registerManager(struct diana *diana, const char *name, void *user_data);
+void diana_signal(struct diana *diana, unsigned int entity, unsigned int signal);
 
-void diana_observe(struct diana *diana, DLuint manager, DLenum callback, void (*function)(struct diana *diana, void *user_data, DLenum callback, DLuint entity));
+// single
+void diana_setComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data);
 
-void diana_observeAll(struct diana *diana, DLuint manager, void (*function)(struct diana *diana, void *user_data, DLenum callback, DLuint entity));
+void * diana_getComponent(struct diana *diana, unsigned int entity, unsigned int component);
 
-void diana_setManagerUserData(struct diana *diana, DLuint system, void *user_data);
+void diana_removeComponent(struct diana *diana, unsigned int entity, unsigned int component);
 
-// ENTITY
-DLuint diana_spawn(struct diana *diana);
+// multiple
+unsigned int diana_getComponentCount(struct diana *diana, unsigned int entity, unsigned int component);
 
-void diana_setComponent(struct diana *diana, DLuint entity, DLuint component, void const * data);
+void diana_appendComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data);
 
-void *diana_getComponent(struct diana *diana, DLuint entity, DLuint component);
+void diana_removeComponents(struct diana *diana, unsigned int entity, unsigned int component);
 
-void diana_removeComponent(struct diana *diana, DLuint entity, DLuint component);
+// low level
+void diana_setComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, const void * data);
 
-void diana_add(struct diana *diana, DLuint entity);
+void * diana_getComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i);
 
-void diana_enable(struct diana *diana, DLuint entity);
-
-void diana_disable(struct diana *diana, DLuint entity);
-
-void diana_delete(struct diana *diana, DLuint entity);
-
-// INSPECT
-DLint diana_getI(struct diana *, DLenum property);
-void diana_getIV(struct diana *, DLenum property, DLint *);
-
-void const * diana_getP(struct diana *, DLenum property);
-void diana_getPV(struct diana *, DLenum property, void const * *);
-
-DLint diana_getObjectI(struct diana *, DLuint object, DLenum property);
-void diana_getObjectIV(struct diana *, DLuint object, DLenum property, DLint *);
-
-void const * diana_getObjectP(struct diana *, DLuint object, DLenum property);
-void diana_getObjectPV(struct diana *, DLuint object, DLenum property, void const * *);
+void diana_removeComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i);
 
 #ifdef __cplusplus
 }
