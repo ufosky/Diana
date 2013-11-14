@@ -7,8 +7,6 @@
 #include <string>
 #include <cstdlib>
 
-#include <cstdio>
-
 namespace Diana {
 
 class Component { };
