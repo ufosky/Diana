@@ -14,6 +14,7 @@ public:
 
 class Velocity : public Component {
 public:
+	Velocity() : x(0), y(0) { }
 	Velocity(float _x, float _y) : x(_x), y(_y) { }
 
 	float x, y;

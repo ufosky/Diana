@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define DIANA_VERSION "0.0.2.0"
+#define DIANA_VERSION "0.0.3.0"
 
 #include <stddef.h>
 
@@ -29,6 +29,15 @@ enum {
 #define DL_COMPONENT_FLAG_INDEXED    DL_COMPONENT_INDEXED_BIT
 #define DL_COMPONENT_FLAG_MULTIPLE   (DL_COMPONENT_INDEXED_BIT | DL_COMPONENT_MULTIPLE_BIT)
 #define DL_COMPONENT_FLAG_LIMITED(X) (DL_COMPONENT_INDEXED_BIT | DL_COMPONENT_FLAG_LIMITED_BIT | ((X) << 3))
+
+// system flags
+#define DL_SYSTEM_PASSIVE_BIT 1
+
+#define DL_SYSTEM_FLAG_NORMAL  0
+#define DL_SYSTEM_FLAG_PASSIVE DL_SYSTEM_PASSIVE_BIT
+
+// manager flags
+#define DL_MANAGER_FLAG_NORMAL  0
 
 // entity signal
 enum {
@@ -71,7 +80,8 @@ unsigned int diana_createSystem(
 	void (*ending)(struct diana *, void *),
 	void (*subscribed)(struct diana *, void *, unsigned int),
 	void (*unsubscribed)(struct diana *, void *, unsigned int),
-	void *userData
+	void *userData,
+	unsigned int flags
 );
 
 void diana_watch(struct diana *diana, unsigned int system, unsigned int component);
@@ -87,12 +97,15 @@ unsigned int diana_createManager(
 	void (*enabled)(struct diana *, void *, unsigned int),
 	void (*disabled)(struct diana *, void *, unsigned int),
 	void (*deleted)(struct diana *, void *, unsigned int),
-	void *userData
+	void *userData,
+	unsigned int flags
 );
 
 // ============================================================================
 // RUNTIME
 void diana_process(struct diana *, float delta);
+
+void diana_processSystem(struct diana *, unsigned int system, float delta);
 
 // ============================================================================
 // entity

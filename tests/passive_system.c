@@ -54,6 +54,7 @@ static void renderSystem_process(struct diana *diana, void *user_data, unsigned 
 int main() {
 	struct diana *diana = allocate_diana(malloc, free);
 	struct velocity ev = {1.5, 0};
+	unsigned int i = 0;
 
 	positionComponent = diana_createComponent(diana, "position", sizeof(struct position), DL_COMPONENT_FLAG_INLINE); DEBUG(diana);
 	velocityComponent = diana_createComponent(diana, "velocity", sizeof(struct velocity), DL_COMPONENT_FLAG_INLINE); DEBUG(diana);
@@ -63,7 +64,7 @@ int main() {
 	diana_watch(diana, movementSystem, positionComponent); DEBUG(diana);
 	diana_watch(diana, movementSystem, velocityComponent); DEBUG(diana);
 
-	unsigned int renderSystem = diana_createSystem(diana, "render", NULL, renderSystem_process, NULL, NULL, NULL, NULL, DL_SYSTEM_FLAG_NORMAL); DEBUG(diana);
+	unsigned int renderSystem = diana_createSystem(diana, "render", NULL, renderSystem_process, NULL, NULL, NULL, NULL, DL_SYSTEM_FLAG_PASSIVE); DEBUG(diana);
 	diana_watch(diana, renderSystem, positionComponent); DEBUG(diana);
 	diana_watch(diana, renderSystem, rendererComponent); DEBUG(diana);
 
@@ -83,5 +84,9 @@ int main() {
 		// 30 fps
 		diana_process(diana, 1.0/30.0); DEBUG(diana);
 		sleep(1);
+
+		if(i++ % 2 == 0) {
+			diana_processSystem(diana, renderSystem, 1.0/30.0); DEBUG(diana);
+		}
 	}
 }

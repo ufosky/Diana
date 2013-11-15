@@ -9,7 +9,10 @@
 
 namespace Diana {
 
-class Component { };
+class Component {
+public:
+	virtual unsigned int componentFlags() const { return DL_COMPONENT_FLAG_INLINE; }
+};
 
 class Entity;
 class System;
@@ -23,7 +26,8 @@ public:
 	unsigned int registerComponent() {
 		const std::type_info * tid = &typeid(T);
 		if(components.count(tid) == 0) {
-			components[tid] = diana_createComponent(diana, tid->name(), sizeof(T), DL_COMPONENT_FLAG_INLINE);
+			T x;
+			components[tid] = diana_createComponent(diana, tid->name(), sizeof(T), x.componentFlags());
 		}
 		return components[tid];
 	}
@@ -93,6 +97,7 @@ public:
 	unsigned int getId() { return _id; }
 
 	virtual void addWatches() { }
+	virtual unsigned int systemFlags() const { return DL_SYSTEM_FLAG_NORMAL; }
 
 	virtual void starting() { }
 	virtual void process(Entity &entity, float delta) { }
@@ -126,6 +131,8 @@ public:
 	void setWorld(World *);
 	World *getWorld() { return _world; }
 	unsigned int getId() { return _id; }
+
+	virtual unsigned int managerFlags() const { return DL_MANAGER_FLAG_NORMAL; }
 
 	virtual void added(Entity &entity) { }
 	virtual void enabled(Entity &entity) { }

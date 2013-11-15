@@ -165,6 +165,7 @@ struct _component {
 
 struct _system {
 	const char *name;
+	unsigned int flags;
 	void *userData;
 	void (*starting)(struct diana *, void *user_data);
 	void (*process)(struct diana *, void *user_data, unsigned int entity, float delta);
@@ -178,6 +179,7 @@ struct _system {
 
 struct _manager {
 	const char *name;
+	unsigned int flags;
 	void *userData;
 	void (*added)(struct diana *diana, void *userData, unsigned int entity);
 	void (*enabled)(struct diana *diana, void *userData, unsigned int entity);
@@ -376,7 +378,8 @@ unsigned int diana_createSystem(
 	void (*ending)(struct diana *, void *),
 	void (*subscribed)(struct diana *, void *, unsigned int),
 	void (*unsubscribed)(struct diana *, void *, unsigned int),
-	void *userData
+	void *userData,
+	unsigned int flags
 ) {
 	struct _system s;
 
@@ -396,6 +399,7 @@ unsigned int diana_createSystem(
 	s.subscribed = subscribed;
 	s.unsubscribed = unsubscribed;
 	s.userData = userData;
+	s.flags = flags;
 
 	diana->systems = _realloc(diana, diana->systems, sizeof(*diana->systems) * diana->num_systems, sizeof(*diana->systems) * (diana->num_systems + 1));
 	diana->systems[diana->num_systems++] = s;
@@ -450,7 +454,8 @@ unsigned int diana_createManager(
 	void (*enabled)(struct diana *, void *, unsigned int),
 	void (*disabled)(struct diana *, void *, unsigned int),
 	void (*deleted)(struct diana *, void *, unsigned int),
-	void *userData
+	void *userData,
+	unsigned int flags
 ) {
 	struct _manager m;
 
@@ -469,6 +474,7 @@ unsigned int diana_createManager(
 	m.disabled = disabled;
 	m.deleted = deleted;
 	m.userData = userData;
+	m.flags = flags;
 
 	diana->managers = _realloc(diana, diana->managers, sizeof(*diana->managers) * diana->num_managers, sizeof(*diana->managers) * (diana->num_managers + 1));
 	diana->managers[diana->num_managers++] = m;
@@ -529,6 +535,11 @@ void diana_process(struct diana *diana, float delta) {
 	unsigned int entity, i, j;
 	struct _system *system;
 	struct _manager *manager;
+	
+	if(!diana->initialized) {
+		diana->error = DL_ERROR_INVALID_OPERATION;
+		return;
+	}
 
 	diana->processing = 1;
 
@@ -586,6 +597,10 @@ void diana_process(struct diana *diana, float delta) {
 	_sparseIntegerSet_clear(diana, &diana->deleted);
 
 	FOREACH_ARRAY(system, j, diana->systems, diana->num_systems) {
+		if(system->flags & DL_SYSTEM_PASSIVE_BIT) {
+			continue;
+		}
+
 		if(system->starting != NULL) {
 			system->starting(diana, system->userData);
 		}
@@ -619,6 +634,33 @@ void diana_process(struct diana *diana, float delta) {
 
 		diana->processingData = NULL;
 		diana->processingDataHeight = 0;
+	}
+}
+
+void diana_processSystem(struct diana *diana, unsigned int system, float delta) {
+	struct _system *s;
+	unsigned int i, entity;
+
+	if(!diana->initialized) {
+		diana->error = DL_ERROR_INVALID_OPERATION;
+		return;
+	}
+
+	if(system >= diana->num_systems) {
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return;
+	}
+
+	s = diana->systems + system;
+
+	if(s->starting != NULL) {
+		s->starting(diana, s->userData);
+	}
+	FOREACH_SPARSEINTSET(entity, i, &s->entities) {
+		s->process(diana, s->userData, entity, delta);
+	}
+	if(s->ending != NULL) {
+		s->ending(diana, s->userData);
 	}
 }
 

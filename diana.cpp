@@ -82,7 +82,7 @@ static void _system_unsubscribed(struct diana *, void *user_data, unsigned int e
 
 void System::setWorld(World *world) {
 	_world = world;
-	_id = diana_createSystem(world->getDiana(), _name.c_str(), _system_starting, _system_process, _system_ending, _system_subscribed, _system_unsubscribed, this);
+	_id = diana_createSystem(world->getDiana(), _name.c_str(), _system_starting, _system_process, _system_ending, _system_subscribed, _system_unsubscribed, this, systemFlags());
 	addWatches();
 }
 
@@ -114,7 +114,7 @@ static void _manager_deleted(struct diana *, void *user_data, unsigned int entit
 
 void Manager::setWorld(World *world) {
 	_world = world;
-	_id = diana_createManager(world->getDiana(), _name.c_str(), _manager_added, _manager_enabled, _manager_disabled, _manager_deleted, this);
+	_id = diana_createManager(world->getDiana(), _name.c_str(), _manager_added, _manager_enabled, _manager_disabled, _manager_deleted, this, managerFlags());
 }
 
 };
