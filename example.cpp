@@ -57,7 +57,7 @@ public:
 		Position &position = entity.getComponent<Position>();
 		Renderer &renderer = entity.getComponent<Renderer>();
 
-		printf("%i rendered at (%f,%f)\n", entity.getId(), position.x, position.y);
+		printf("%i rendered at (%f,%f,%c)\n", entity.getId(), position.x, position.y, renderer.c);
 	}
 };
 

@@ -48,7 +48,7 @@ static void renderSystem_process(struct diana *diana, void *user_data, unsigned 
 	struct position *position = (struct position *)diana_getComponent(diana, entity, positionComponent); DEBUG(diana);
 	struct renderer *renderer = (struct renderer *)diana_getComponent(diana, entity, rendererComponent); DEBUG(diana);
 
-	printf("%i rendered at (%f,%f)\n", entity, position->x, position->y);
+	printf("%i rendered at (%f,%f,%c)\n", entity, position->x, position->y, renderer->c);
 }
 
 int main() {

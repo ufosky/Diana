@@ -98,6 +98,8 @@ void diana_process(struct diana *, float delta);
 // entity
 unsigned int diana_spawn(struct diana *diana);
 
+unsigned int diana_clone(struct diana *diana, unsigned int entity);
+
 void diana_signal(struct diana *diana, unsigned int entity, unsigned int signal);
 
 // single

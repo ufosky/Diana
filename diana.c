@@ -22,6 +22,7 @@ struct _sparseIntegerSet {
 	unsigned int capacity;
 };
 
+/* UNUSED
 static int _sparseIntegerSet_contains(struct diana *diana, struct _sparseIntegerSet *is, unsigned int i) {
 	if(i >= is->capacity) {
 		return 0;
@@ -30,6 +31,7 @@ static int _sparseIntegerSet_contains(struct diana *diana, struct _sparseInteger
 	unsigned int n = is->population;
 	return a < n && is->dense[a] == i;
 }
+*/
 
 static int _sparseIntegerSet_insert(struct diana *diana, struct _sparseIntegerSet *is, unsigned int i) {
 	if(i >= is->capacity) {
@@ -127,6 +129,7 @@ static void _denseIntegerSet_delete(struct diana *diana, struct _denseIntegerSet
 	}
 }
 
+/* UNUSED
 static void _denseIntegerSet_clear(struct diana *diana, struct _denseIntegerSet *is) {
 	memset(is->bytes, 0, (is->capacity + 7) >> 3);
 }
@@ -140,6 +143,7 @@ static int _denseIntegerSet_isEmpty(struct diana *diana, struct _denseIntegerSet
 	}
 	return 1;
 }
+*/
 
 // ============================================================================
 // PRIMARY DATA
@@ -824,6 +828,42 @@ static void _removeComponentI(struct diana *diana, unsigned int entity, unsigned
 		*index = 0;
 		return;
 	}
+}
+
+unsigned int diana_clone(struct diana *diana, unsigned int parentEntity) {
+	unsigned int newEntity, ci, cbi, cbn;
+	struct _component *c;
+	unsigned char *parentEntityData;
+
+	if(!diana->initialized) {
+		diana->error = DL_ERROR_INVALID_OPERATION;
+		return 0;
+	}
+
+	if((!diana->processing && parentEntity >= diana->dataHeight) || (diana->processing && parentEntity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
+		diana->error = DL_ERROR_INVALID_VALUE;
+		return 0;
+	}
+
+	newEntity = diana_spawn(diana);
+
+	parentEntityData = _getEntityData(diana, parentEntity);
+
+	for(ci = 0; ci < diana->num_components; ci++) {
+		if(!_bits_isSet(parentEntityData, ci)) {
+			continue;
+		}
+
+		c = diana->components + ci;
+
+		cbn = diana_getComponentCount(diana, parentEntity, ci);
+
+		for(cbi = 0; cbi < cbn; cbi++) {
+			_setComponentI(diana, newEntity, ci, cbi, _getComponentI(diana, parentEntity, ci, cbi));
+		}
+	}
+
+	return newEntity;
 }
 
 // single
