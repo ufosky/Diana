@@ -16,6 +16,7 @@ add_library(DianaCPP diana.c diana.cpp)
 
 add_executable(ExampleC example.c)
 add_executable(ExampleCPP example.cpp)
+add_executable(FuzzTest tests/fuzz.c)
 
 target_link_libraries(ExampleC DianaC)
 target_link_libraries(ExampleCPP DianaCPP)
