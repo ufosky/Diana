@@ -9,6 +9,10 @@ extern "C" {
 
 #define DIANA_VERSION "0.0.3.0"
 
+#ifndef DL_COMPUTE
+#define DL_COMPUTE 1
+#endif
+
 #include <stddef.h>
 
 // errors
@@ -70,6 +74,10 @@ unsigned int diana_createComponent(
  	unsigned int flags
 );
 
+#if DL_COMPUTE
+void diana_componentCompute(struct diana *diana, unsigned int component, void (*compute)(struct diana *, void *, unsigned int entity, unsigned int index, void *), void *userData);
+#endif
+
 // ============================================================================
 // system
 unsigned int diana_createSystem(
@@ -119,6 +127,10 @@ void diana_signal(struct diana *diana, unsigned int entity, unsigned int signal)
 void diana_setComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data);
 
 void * diana_getComponent(struct diana *diana, unsigned int entity, unsigned int component);
+
+#if DL_COMPUTE
+void diana_dirtyComponent(struct diana *diana, unsigned int entity, unsigned int component);
+#endif
 
 void diana_removeComponent(struct diana *diana, unsigned int entity, unsigned int component);
 
