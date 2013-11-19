@@ -5,8 +5,6 @@
 #include <string.h>
 #include <limits.h>
 
-#include <stdio.h>
-
 static void *_malloc(struct diana *diana, size_t size);
 static void *_realloc(struct diana *diana, void *ptr, size_t oldSize, size_t newSize);
 static void _free(struct diana *diana, void *ptr);
