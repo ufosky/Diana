@@ -1,6 +1,6 @@
 // vim: ts=2:sw=2:noexpandtab
 
-#include "diana.h"
+#include "../diana.h"
 
 #include <map>
 #include <typeinfo>

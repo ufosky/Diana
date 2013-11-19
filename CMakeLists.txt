@@ -12,10 +12,10 @@ IF(CMAKE_COMPILER_IS_GNUCXX)
 ENDIF(CMAKE_COMPILER_IS_GNUCXX)
 
 add_library(DianaC diana.c)
-add_library(DianaCPP diana.c diana.cpp)
+add_library(DianaCPP diana.c cpp/diana.cpp)
 
 add_executable(ExampleC example.c)
-add_executable(ExampleCPP example.cpp)
+add_executable(ExampleCPP cpp/example.cpp)
 add_executable(FuzzTest tests/fuzz.c)
 
 target_link_libraries(ExampleC DianaC)
