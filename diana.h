@@ -13,6 +13,10 @@ extern "C" {
 #define DL_COMPUTE 1
 #endif
 
+#ifndef DL_MUTEX
+#define DL_MUTEX 1
+#endif
+
 #include <stddef.h>
 
 // errors
@@ -64,6 +68,10 @@ void diana_free(struct diana *);
 // ============================================================================
 // INITIALIZATION TIME
 void diana_initialize(struct diana *);
+
+#if DL_MUTEX
+void diana_mutexFunctions(struct diana *, void *(*create_mutex)(void), void (*mutex_lock)(void *), void (*mutex_unlock)(void *), void (*mutex_free)(void *));
+#endif
 
 // ============================================================================
 // component
