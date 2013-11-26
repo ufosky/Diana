@@ -164,19 +164,20 @@ static int _denseIntegerSet_contains(struct diana *diana, struct _denseIntegerSe
 	return i < is->capacity && _bits_isSet(is->bytes, i);
 }
 
-static void _denseIntegerSet_insert(struct diana *diana, struct _denseIntegerSet *is, unsigned int i) {
+static unsigned int _denseIntegerSet_insert(struct diana *diana, struct _denseIntegerSet *is, unsigned int i) {
 	if(i >= is->capacity) {
 		unsigned int newCapacity = (i + 1) * 1.5;
 		is->bytes = _realloc(diana, is->bytes, (is->capacity + 7) >> 3, (newCapacity + 7) >> 3);
 		is->capacity = newCapacity;
 	}
-	_bits_set(is->bytes, i);
+	return _bits_set(is->bytes, i);
 }
 
-static void _denseIntegerSet_delete(struct diana *diana, struct _denseIntegerSet *is, unsigned int i) {
+static unsigned int _denseIntegerSet_delete(struct diana *diana, struct _denseIntegerSet *is, unsigned int i) {
 	if(i < is->capacity) {
-		_bits_clear(is->bytes, i);
+		return _bits_clear(is->bytes, i);
 	}
+	return 0;
 }
 
 /* UNUSED
@@ -250,14 +251,14 @@ struct _system {
 	void (*unsubscribed)(struct diana *, void *user_data, unsigned int entity);
 	struct _sparseIntegerSet watch;
 	struct _sparseIntegerSet exclude;
-	struct _sparseIntegerSet entities;
+	struct _denseIntegerSet entities;
 };
 
 static void _system_free(struct diana *diana, struct _system *system) {
 	_free(diana, (void *)system->name);
 	_sparseIntegerSet_free(diana, &system->watch);
 	_sparseIntegerSet_free(diana, &system->exclude);
-	_sparseIntegerSet_free(diana, &system->entities);
+	_denseIntegerSet_free(diana, &system->entities);
 	memset(system, 0, sizeof(*system));
 }
 
@@ -333,6 +334,7 @@ struct diana {
 // ============================================================================
 // UTILITY
 #define FOREACH_SPARSEINTSET(I, N, S) for(N = 0, I = (S)->dense ? (S)->dense[N] : 0; N < (S)->population; N++, I = (S)->dense[N])
+#define FOREACH_DENSEINTSET(I, D) for(I = 0; I < (D)->capacity; I++) if(_bits_isSet((D)->bytes, I))
 #define FOREACH_ARRAY(T, N, A, S) for(N = 0, T = A; N < S; N++, T++)
 
 static void *_malloc(struct diana *diana, size_t size) {
@@ -531,8 +533,9 @@ void diana_componentCompute(struct diana *diana, unsigned int component, void (*
 	diana->dataWidth += sizeof(char);
 
 	// give this component room
-	while(++component < diana->num_components) {
+	while(component < diana->num_components) {
 		diana->components[component].offset += sizeof(char);
+		component++;
 	}
 }
 #endif
@@ -661,14 +664,14 @@ static unsigned char *_getEntityData(struct diana *diana, unsigned int entity) {
 }
 
 static void _subscribe(struct diana *diana, struct _system *system, unsigned int entity) {
-	int included = _sparseIntegerSet_insert(diana, &system->entities, entity);
+	int included = _denseIntegerSet_insert(diana, &system->entities, entity);
 	if(!included && system->subscribed != NULL) {
 		system->subscribed(diana, system->userData, entity);
 	}
 }
 
 static void _unsubscribe(struct diana *diana, struct _system *system, unsigned int entity) {
-	int included = _sparseIntegerSet_delete(diana, &system->entities, entity);
+	int included = _denseIntegerSet_delete(diana, &system->entities, entity);
 	if(included && system->unsubscribed != NULL) {
 		system->unsubscribed(diana, system->userData, entity);
 	}
@@ -795,7 +798,7 @@ void diana_process(struct diana *diana, float delta) {
 		if(system->starting != NULL) {
 			system->starting(diana, system->userData);
 		}
-		FOREACH_SPARSEINTSET(entity, i, &system->entities) {
+		FOREACH_DENSEINTSET(entity, &system->entities) {
 			system->process(diana, system->userData, entity, delta);
 		}
 		if(system->ending != NULL) {
@@ -810,7 +813,7 @@ void diana_process(struct diana *diana, float delta) {
 
 void diana_processSystem(struct diana *diana, unsigned int system, float delta) {
 	struct _system *s;
-	unsigned int i, entity;
+	unsigned int entity;
 
 	if(!diana->initialized) {
 		diana->error = DL_ERROR_INVALID_OPERATION;
@@ -827,7 +830,7 @@ void diana_processSystem(struct diana *diana, unsigned int system, float delta) 
 	if(s->starting != NULL) {
 		s->starting(diana, s->userData);
 	}
-	FOREACH_SPARSEINTSET(entity, i, &s->entities) {
+	FOREACH_DENSEINTSET(entity, &s->entities) {
 		s->process(diana, s->userData, entity, delta);
 	}
 	if(s->ending != NULL) {
@@ -944,7 +947,6 @@ static void _setComponentI(struct diana *diana, unsigned int entity, unsigned in
 	struct _component *c = diana->components + component;
 	int defined = _bits_set(entityData, component);
 	void *componentData = NULL;
-	unsigned int offset = c->offset;
 
 	// can only add a component if its inactive or if it already has that component
 	if(_denseIntegerSet_contains(diana, &diana->active, entity) && !defined) {
@@ -954,13 +956,12 @@ static void _setComponentI(struct diana *diana, unsigned int entity, unsigned in
 
 #if DL_COMPUTE
 	if(c->compute) {
-		entityData[offset] = !defined;
-		offset += sizeof(char);
+		entityData[c->offset - 1] = !defined;
 	}
 #endif
 
 	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
-		struct _componentBag *bag = (struct _componentBag *)(entityData + offset);
+		struct _componentBag *bag = (struct _componentBag *)(entityData + c->offset);
 		unsigned int index;
 
 		if(i >= bag->count) {
@@ -976,7 +977,7 @@ static void _setComponentI(struct diana *diana, unsigned int entity, unsigned in
 
 		componentData = (void *)((unsigned char *)c->data[bag->indexes[i]]);
 	} else if(c->flags & DL_COMPONENT_INDEXED_BIT) {
-		unsigned int *index = (unsigned int *)(entityData + offset);
+		unsigned int *index = (unsigned int *)(entityData + c->offset);
 
 		if(!defined) {
 			*index = _getAComponentIndex(diana, c);
@@ -989,7 +990,7 @@ static void _setComponentI(struct diana *diana, unsigned int entity, unsigned in
 
 		componentData = (void *)((unsigned char *)c->data[*index]);
 	} else {
-		componentData = (void *)(entityData + offset);
+		componentData = (void *)(entityData + c->offset);
 	}
 
 	if(data != NULL) {
@@ -1000,7 +1001,6 @@ static void _setComponentI(struct diana *diana, unsigned int entity, unsigned in
 static void * _getComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i) {
 	unsigned char *entityData = _getEntityData(diana, entity);
 	struct _component *c = diana->components + component;
-	unsigned int offset = c->offset;
 	void *componentData = NULL;
 
 #if DL_COMPUTE
@@ -1018,29 +1018,28 @@ static void * _getComponentI(struct diana *diana, unsigned int entity, unsigned 
 	}
 
 	if(c->compute) {
-		if(entityData[offset]) {
+		if(entityData[c->offset - 1]) {
 			calculate = 1;
-			entityData[offset] = 0;
+			entityData[c->offset - 1] = 0;
 		}
-		offset += sizeof(char);
 	}
 #endif
 
 	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
-		struct _componentBag *bag = (struct _componentBag *)(entityData + offset);
+		struct _componentBag *bag = (struct _componentBag *)(entityData + c->offset);
 		if(i >= bag->count) {
 			diana->error = DL_ERROR_INVALID_VALUE;
 			return NULL;
 		}
 		componentData = (void *)((unsigned char *)c->data[bag->indexes[i]]);
 	} else if(c->flags & DL_COMPONENT_INDEXED_BIT) {
-		unsigned int *index = (unsigned int *)(entityData + offset);
+		unsigned int *index = (unsigned int *)(entityData + c->offset);
 		if(*index == UINT_MAX) {
 			return NULL;
 		}
 		componentData = (void *)((unsigned char *)c->data[*index]);
 	} else {
-		componentData = (void *)(entityData + offset);
+		componentData = (void *)(entityData + c->offset);
 	}
 
 #if DL_COMPUTE
@@ -1198,7 +1197,7 @@ void diana_dirtyComponent(struct diana *diana, unsigned int entity, unsigned int
 
 	FOREACH_SPARSEINTSET(ci, i, &c->componentsToDirty) {
 		struct _component *c2 = diana->components + ci;
-		entityData[c2->offset] = 1;
+		entityData[c2->offset - 1] = 1;
 	}
 }
 #endif

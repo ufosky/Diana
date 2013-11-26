@@ -20,3 +20,4 @@ add_executable(FuzzTest tests/fuzz.c)
 
 target_link_libraries(ExampleC DianaC)
 target_link_libraries(ExampleCPP DianaCPP)
+target_link_libraries(FuzzTest rt)

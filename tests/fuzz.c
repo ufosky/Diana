@@ -2,7 +2,6 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-
 #include <time.h>
 
 size_t allocations = 0, num_allocated = 0;
@@ -143,9 +142,29 @@ void random_process(struct diana *diana, void *ud, unsigned int eid, float delta
     }
 }
 
+struct timespec diff(struct timespec start, struct timespec end) {
+    struct timespec temp;
+    if((end.tv_nsec - start.tv_nsec) < 0) {
+        temp.tv_sec = end.tv_sec - start.tv_sec - 1;
+        temp.tv_nsec = 1000000000 + end.tv_nsec - start.tv_nsec;
+    } else {
+        temp.tv_sec = end.tv_sec - start.tv_sec;
+        temp.tv_nsec = end.tv_nsec - start.tv_nsec;
+    }
+    return temp;
+}
+
+void print_timespec(struct timespec ts) {
+    long int min = ts.tv_sec / 60;
+    long int sec = ts.tv_sec % 60;
+    printf("%02li:%02li.%09ld", min, sec, ts.tv_nsec);
+}
+
 int main(int argc, char *argv[]) {
     unsigned int eid, error, stati = 0, i;
-    struct timespec req;
+    struct timespec time1, time2, time3, setup_time, iteration_time;
+
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time1);
 
     global_diana = allocate_diana(fuzz_malloc, fuzz_free);
 
@@ -163,9 +182,9 @@ int main(int argc, char *argv[]) {
         add(spawn());
     }
 
-    print_stats();
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time2);
 
-    while(stati < 1000) {
+    while(stati++ < 100000) {
         if(!_sparseIntegerSet_isEmpty(global_diana, &disabled_eids)) {
             eid = _sparseIntegerSet_pop(global_diana, &disabled_eids);
             add_random_component(eid);
@@ -182,21 +201,27 @@ int main(int argc, char *argv[]) {
 
         error = DIANA(getError);
         if(error != DL_ERROR_NONE) {
+            print_stats();
             printf("%u: ERROR: %u\n", stati, error);
         }
-
-        if((stati++ % 100) == 0) {
-            print_stats();
-        }
-
-        req.tv_sec = 0;
-        req.tv_nsec = 10000000;
-        nanosleep(&req, NULL);
     }
+
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time3);
 
     diana_free(global_diana);
 
+    setup_time = diff(time1, time2);
+    iteration_time = diff(time2, time3);
+
     print_stats();
+
+    printf("setup completed in ");
+    print_timespec(setup_time);
+    printf("\n");
+
+    printf("%i iterations completed in ", stati - 1);
+    print_timespec(iteration_time);
+    printf("\n");
 
     return 0;
 }
