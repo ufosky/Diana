@@ -27,7 +27,9 @@ public:
 		const std::type_info * tid = &typeid(T);
 		if(components.count(tid) == 0) {
 			T x;
-			components[tid] = diana_createComponent(diana, tid->name(), sizeof(T), x.componentFlags());
+			unsigned int cid;
+			diana_createComponent(diana, tid->name(), sizeof(T), x.componentFlags(), &cid);
+			components[tid] = cid;
 		}
 		return components[tid];
 	}
@@ -73,7 +75,9 @@ public:
 	template<class T>
 	T &getComponent() {
 		unsigned int cid = _world->getComponentId<T>();
-		return *(T *)diana_getComponent(_world->getDiana(), _id, cid);
+		T * ptr;
+		diana_getComponent(_world->getDiana(), _id, cid, (void **)&ptr);
+		return *ptr;
 	}
 
 	void add();

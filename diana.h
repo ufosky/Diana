@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define DIANA_VERSION "0.0.3.0"
+#define DIANA_VERSION "0.1.0.0"
 
 #ifndef DL_COMPUTE
 #define DL_COMPUTE 1
@@ -59,36 +59,35 @@ enum {
 // DIANA
 struct diana;
 
-struct diana *allocate_diana(void *(*malloc)(size_t), void (*free)(void *));
+int allocate_diana(void *(*malloc)(size_t), void (*free)(void *), struct diana **);
 
-unsigned int diana_getError(struct diana *);
-
-void diana_free(struct diana *);
+int diana_free(struct diana *);
 
 // ============================================================================
 // INITIALIZATION TIME
-void diana_initialize(struct diana *);
+int diana_initialize(struct diana *);
 
 #if DL_MUTEX
-void diana_mutexFunctions(struct diana *, void *(*create_mutex)(void), void (*mutex_lock)(void *), void (*mutex_unlock)(void *), void (*mutex_free)(void *));
+int diana_mutexFunctions(struct diana *, void *(*create_mutex)(void), void (*mutex_lock)(void *), void (*mutex_unlock)(void *), void (*mutex_free)(void *));
 #endif
 
 // ============================================================================
 // component
-unsigned int diana_createComponent(
+int diana_createComponent(
 	struct diana *diana,
 	const char *name,
  	size_t size,
- 	unsigned int flags
+ 	unsigned int flags,
+	unsigned int * result
 );
 
 #if DL_COMPUTE
-void diana_componentCompute(struct diana *diana, unsigned int component, void (*compute)(struct diana *, void *, unsigned int entity, unsigned int index, void *), void *userData);
+int diana_componentCompute(struct diana *diana, unsigned int component, void (*compute)(struct diana *, void *, unsigned int entity, unsigned int index, void *), void *userData);
 #endif
 
 // ============================================================================
 // system
-unsigned int diana_createSystem(
+int diana_createSystem(
 	struct diana *diana,
 	const char *name,
 	void (*starting)(struct diana *, void *),
@@ -97,16 +96,17 @@ unsigned int diana_createSystem(
 	void (*subscribed)(struct diana *, void *, unsigned int),
 	void (*unsubscribed)(struct diana *, void *, unsigned int),
 	void *userData,
-	unsigned int flags
+	unsigned int flags,
+	unsigned int * result
 );
 
-void diana_watch(struct diana *diana, unsigned int system, unsigned int component);
+int diana_watch(struct diana *diana, unsigned int system, unsigned int component);
 
-void diana_exclude(struct diana *diana, unsigned int system, unsigned int component);
+int diana_exclude(struct diana *diana, unsigned int system, unsigned int component);
 
 // ============================================================================
 // manager
-unsigned int diana_createManager(
+int diana_createManager(
 	struct diana *diana,
 	const char *name,
 	void (*added)(struct diana *, void *, unsigned int),
@@ -114,47 +114,48 @@ unsigned int diana_createManager(
 	void (*disabled)(struct diana *, void *, unsigned int),
 	void (*deleted)(struct diana *, void *, unsigned int),
 	void *userData,
-	unsigned int flags
+	unsigned int flags,
+	unsigned int * result
 );
 
 // ============================================================================
 // RUNTIME
-void diana_process(struct diana *, float delta);
+int diana_process(struct diana *, float delta);
 
-void diana_processSystem(struct diana *, unsigned int system, float delta);
+int diana_processSystem(struct diana *, unsigned int system, float delta);
 
 // ============================================================================
 // entity
-unsigned int diana_spawn(struct diana *diana);
+int diana_spawn(struct diana *diana, unsigned int * result);
 
-unsigned int diana_clone(struct diana *diana, unsigned int entity);
+int diana_clone(struct diana *diana, unsigned int entity, unsigned int * result);
 
-void diana_signal(struct diana *diana, unsigned int entity, unsigned int signal);
+int diana_signal(struct diana *diana, unsigned int entity, unsigned int signal);
 
 // single
-void diana_setComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data);
+int diana_setComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data);
 
-void * diana_getComponent(struct diana *diana, unsigned int entity, unsigned int component);
+int diana_getComponent(struct diana *diana, unsigned int entity, unsigned int component, void **);
 
 #if DL_COMPUTE
-void diana_dirtyComponent(struct diana *diana, unsigned int entity, unsigned int component);
+int diana_dirtyComponent(struct diana *diana, unsigned int entity, unsigned int component);
 #endif
 
-void diana_removeComponent(struct diana *diana, unsigned int entity, unsigned int component);
+int diana_removeComponent(struct diana *diana, unsigned int entity, unsigned int component);
 
 // multiple
-unsigned int diana_getComponentCount(struct diana *diana, unsigned int entity, unsigned int component);
+int diana_getComponentCount(struct diana *diana, unsigned int entity, unsigned int component, unsigned int * result);
 
-void diana_appendComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data);
+int diana_appendComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data);
 
-void diana_removeComponents(struct diana *diana, unsigned int entity, unsigned int component);
+int diana_removeComponents(struct diana *diana, unsigned int entity, unsigned int component);
 
 // low level
-void diana_setComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, const void * data);
+int diana_setComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, const void * data);
 
-void * diana_getComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i);
+int diana_getComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, void **);
 
-void diana_removeComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i);
+int diana_removeComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i);
 
 #ifdef __cplusplus
 }

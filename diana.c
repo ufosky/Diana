@@ -302,9 +302,9 @@ struct diana {
 
 	void *signal_mutex;
 	void *data_mutex;
+	void *entity_mutex;
 #endif
 
-	unsigned int error;
 	int initialized;
 	int processing;
 
@@ -356,7 +356,6 @@ struct diana {
 static void *_malloc(struct diana *diana, size_t size) {
 	void *r = diana->malloc(size);
 	if(r == NULL) {
-		diana->error = DL_ERROR_OUT_OF_MEMORY;
 		return NULL;
 	}
 	memset(r, 0, size);
@@ -378,7 +377,6 @@ static char *_strdup(struct diana *diana, const char *s) {
 	l = strlen(s);
 	r = diana->malloc(l + 1);
 	if(r == NULL) {
-		diana->error = DL_ERROR_OUT_OF_MEMORY;
 		return NULL;
 	}
 	memcpy(r, s, l + 1);
@@ -395,7 +393,6 @@ static void *_realloc(struct diana *diana, void *ptr, size_t oldSize, size_t new
 	}
 	void *r = diana->malloc(newSize);
 	if(r == NULL) {
-		diana->error = DL_ERROR_OUT_OF_MEMORY;
 		return NULL;
 	}
 	if(oldSize < newSize) {
@@ -418,32 +415,30 @@ static void _mutex_noop(void *noop) {
 }
 #endif
 
-struct diana *allocate_diana(void *(*malloc)(size_t), void (*free)(void *)) {
-	struct diana *r = malloc(sizeof(*r));
-	if(r != NULL) {
-		memset(r, 0, sizeof(*r));
-		r->malloc = malloc;
-		r->free = free;
+int allocate_diana(void *(*malloc)(size_t), void (*free)(void *), struct diana ** result) {
+	*result = malloc(sizeof(**result));
+
+	if(*result == NULL) {
+		return DL_ERROR_OUT_OF_MEMORY;
+	}
+
+	memset(*result, 0, sizeof(**result));
+	(*result)->malloc = malloc;
+	(*result)->free = free;
 
 #if DL_MUTEX
-		r->create_mutex = _create_mutex_noop;
-		r->mutex_lock = _mutex_noop;
-		r->mutex_unlock = _mutex_noop;
-		r->mutex_free = _mutex_noop;
+	(*result)->create_mutex = _create_mutex_noop;
+	(*result)->mutex_lock = _mutex_noop;
+	(*result)->mutex_unlock = _mutex_noop;
+	(*result)->mutex_free = _mutex_noop;
 #endif
-	}
-	return r;
-}
 
-unsigned int diana_getError(struct diana *diana) {
-	unsigned int r = diana->error;
-	diana->error = DL_ERROR_NONE;
-	return r;
+	return DL_ERROR_NONE;
 }
 
 static void _fixData(struct diana *diana);
 
-void diana_free(struct diana *diana) {
+int diana_free(struct diana *diana) {
 	struct _component *component;
 	struct _system *system;
 	struct _manager *manager;
@@ -485,17 +480,18 @@ void diana_free(struct diana *diana) {
 	_free(diana, diana->managers);
 
 	diana->free(diana);
+
+	return DL_ERROR_NONE;
 }
 
 // ============================================================================
 // INITIALIZATION TIME
-void diana_initialize(struct diana *diana) {
+int diana_initialize(struct diana *diana) {
 	unsigned int extraBytes = (diana->num_components + 7) >> 3, n;
 	struct _component *c;
 
 	if(diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	FOREACH_ARRAY(c, n, diana->components, diana->num_components) {
@@ -505,22 +501,31 @@ void diana_initialize(struct diana *diana) {
 	diana->dataWidth += extraBytes;
 
 	diana->initialized = 1;
+
+	return DL_ERROR_NONE;
 }
 
 #if DL_MUTEX
-void diana_mutexFunctions(struct diana *diana, void *(*create_mutex)(void), void (*mutex_lock)(void *), void (*mutex_unlock)(void *), void (*mutex_free)(void *)) {
+int diana_mutexFunctions(struct diana *diana, void *(*create_mutex)(void), void (*mutex_lock)(void *), void (*mutex_unlock)(void *), void (*mutex_free)(void *)) {
+	struct _component *component;
+	unsigned int i;
+
 	if(diana->initialized || diana->processing) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if(create_mutex == NULL || mutex_lock == NULL || mutex_unlock == NULL || mutex_free == NULL) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
+	}
+
+	FOREACH_ARRAY(component, i, diana->components, diana->num_components) {
+		diana->mutex_free(component->component_mutex);
+		component->component_mutex = create_mutex();
 	}
 
 	diana->mutex_free(diana->signal_mutex);
 	diana->mutex_free(diana->data_mutex);
+	diana->mutex_free(diana->entity_mutex);
 
 	diana->create_mutex = create_mutex;
 	diana->mutex_lock = mutex_lock;
@@ -529,28 +534,31 @@ void diana_mutexFunctions(struct diana *diana, void *(*create_mutex)(void), void
 
 	diana->signal_mutex = diana->create_mutex();
 	diana->data_mutex = diana->create_mutex();
+	diana->entity_mutex = diana->create_mutex();
+
+	return DL_ERROR_NONE;
 }
 #endif
 
 // ============================================================================
 // component
-unsigned int diana_createComponent(
+int diana_createComponent(
 	struct diana *diana,
 	const char *name,
  	size_t size,
- 	unsigned int flags
+ 	unsigned int flags,
+	unsigned int * result
 ) {
 	struct _component c;
 
 	if(diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return 0;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	memset(&c, 0, sizeof(c));
 	c.name = _strdup(diana, name);
 	if(c.name == NULL) {
-		return 0;
+		return DL_ERROR_NONE;
 	}
 	c.size = size;
 	c.flags = flags;
@@ -572,22 +580,24 @@ unsigned int diana_createComponent(
 		}
 	}
 
+	c.component_mutex = diana->create_mutex();
+
 	diana->components = _realloc(diana, diana->components, sizeof(*diana->components) * diana->num_components, sizeof(*diana->components) * (diana->num_components + 1));
 	diana->components[diana->num_components++] = c;
 
-	return diana->num_components - 1;
+	*result = diana->num_components - 1;
+
+	return DL_ERROR_NONE;
 }
 
 #if DL_COMPUTE
-void diana_componentCompute(struct diana *diana, unsigned int component, void (*compute)(struct diana *, void *, unsigned int entity, unsigned int index, void *), void *userData) {
+int diana_componentCompute(struct diana *diana, unsigned int component, void (*compute)(struct diana *, void *, unsigned int entity, unsigned int index, void *), void *userData) {
 	if(diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	diana->components[component].compute = compute;
@@ -599,12 +609,14 @@ void diana_componentCompute(struct diana *diana, unsigned int component, void (*
 		diana->components[component].offset += sizeof(char);
 		component++;
 	}
+
+	return DL_ERROR_NONE;
 }
 #endif
 
 // ============================================================================
 // system
-unsigned int diana_createSystem(
+int diana_createSystem(
 	struct diana *diana,
 	const char *name,
 	void (*starting)(struct diana *, void *),
@@ -613,19 +625,19 @@ unsigned int diana_createSystem(
 	void (*subscribed)(struct diana *, void *, unsigned int),
 	void (*unsubscribed)(struct diana *, void *, unsigned int),
 	void *userData,
-	unsigned int flags
+	unsigned int flags,
+	unsigned int * result
 ) {
 	struct _system s;
 
 	if(diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return 0;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	memset(&s, 0, sizeof(s));
 	s.name = _strdup(diana, name);
 	if(s.name == NULL) {
-		return 0;
+		return DL_ERROR_OUT_OF_MEMORY;
 	}
 	s.starting = starting;
 	s.process = process;
@@ -638,50 +650,50 @@ unsigned int diana_createSystem(
 	diana->systems = _realloc(diana, diana->systems, sizeof(*diana->systems) * diana->num_systems, sizeof(*diana->systems) * (diana->num_systems + 1));
 	diana->systems[diana->num_systems++] = s;
 
-	return diana->num_systems - 1;
+	*result = diana->num_systems - 1;
+
+	return DL_ERROR_NONE;
 }
 
-void diana_watch(struct diana *diana, unsigned int system, unsigned int component) {
+int diana_watch(struct diana *diana, unsigned int system, unsigned int component) {
 	if(diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if(system >= diana->num_systems) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	_sparseIntegerSet_insert(diana, &diana->systems[system].watch, component);
+
+	return DL_ERROR_NONE;
 }
 
-void diana_exclude(struct diana *diana, unsigned int system, unsigned int component) {
+int diana_exclude(struct diana *diana, unsigned int system, unsigned int component) {
 	if(diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if(system >= diana->num_systems) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	_sparseIntegerSet_insert(diana, &diana->systems[system].exclude, component);
+
+	return DL_ERROR_NONE;
 }
 
 // ============================================================================
 // manager
-unsigned int diana_createManager(
+int diana_createManager(
 	struct diana *diana,
 	const char *name,
 	void (*added)(struct diana *, void *, unsigned int),
@@ -689,19 +701,19 @@ unsigned int diana_createManager(
 	void (*disabled)(struct diana *, void *, unsigned int),
 	void (*deleted)(struct diana *, void *, unsigned int),
 	void *userData,
-	unsigned int flags
+	unsigned int flags,
+	unsigned int * result
 ) {
 	struct _manager m;
 
 	if(diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return 0;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	memset(&m, 0, sizeof(m));
 	m.name = _strdup(diana, name);
 	if(m.name == NULL) {
-		return 0;
+		return DL_ERROR_OUT_OF_MEMORY;
 	}
 	m.added = added;
 	m.enabled = enabled;
@@ -713,7 +725,9 @@ unsigned int diana_createManager(
 	diana->managers = _realloc(diana, diana->managers, sizeof(*diana->managers) * diana->num_managers, sizeof(*diana->managers) * (diana->num_managers + 1));
 	diana->managers[diana->num_managers++] = m;
 
-	return diana->num_managers - 1;
+	*result = diana->num_managers - 1;
+
+	return DL_ERROR_NONE;
 }
 
 // ============================================================================
@@ -817,7 +831,7 @@ static void _processSystem(struct diana *diana, struct _system *system, float de
 	}
 }
 
-void diana_process(struct diana *diana, float delta) {
+int diana_process(struct diana *diana, float delta) {
 	unsigned int i, j;
 	struct _system *system;
 	struct _manager *manager;
@@ -827,8 +841,7 @@ void diana_process(struct diana *diana, float delta) {
 	int *deleted, num_deleted;
 	
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 #if DL_MUTEX
@@ -878,7 +891,6 @@ void diana_process(struct diana *diana, float delta) {
 				manager->enabled(diana, manager->userData, entity);
 			}
 		}
-		_denseIntegerSet_insert(diana, &diana->active, entity);
 	}
 
 	for(i = 0; i < num_disabled; i++) {
@@ -891,7 +903,6 @@ void diana_process(struct diana *diana, float delta) {
 				manager->disabled(diana, manager->userData, entity);
 			}
 		}
-		_denseIntegerSet_delete(diana, &diana->active, entity);
 	}
 
 	for(i = 0; i < num_deleted; i++) {
@@ -907,8 +918,26 @@ void diana_process(struct diana *diana, float delta) {
 		for(j = 0; j < diana->num_components; j++) {
 			diana_removeComponents(diana, entity, j);
 		}
+	}
+
+#if DL_MUTEX
+	diana->mutex_lock(diana->entity_mutex);
+#endif
+	for(i = 0; i < num_enabled; i++) {
+		unsigned int entity = enabled[i];
+		_denseIntegerSet_insert(diana, &diana->active, entity);
+	}
+	for(i = 0; i < num_disabled; i++) {
+		unsigned int entity = disabled[i];
+		_denseIntegerSet_delete(diana, &diana->active, entity);
+	}
+	for(i = 0; i < num_deleted; i++) {
+		unsigned int entity = deleted[i];
 		_sparseIntegerSet_insert(diana, &diana->freeEntityIds, entity);
 	}
+#if DL_MUTEX
+	diana->mutex_unlock(diana->entity_mutex);
+#endif
 
 	_free(diana, added);
 	_free(diana, enabled);
@@ -921,31 +950,39 @@ void diana_process(struct diana *diana, float delta) {
 		}
 		_processSystem(diana, system, delta);
 	}
+
+	return DL_ERROR_NONE;
 }
 
-void diana_processSystem(struct diana *diana, unsigned int system, float delta) {
+static void DEBUG(void) { }
+
+int diana_processSystem(struct diana *diana, unsigned int system, float delta) {
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if(system >= diana->num_systems) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		DEBUG();
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	_processSystem(diana, diana->systems + system, delta);
+
+	return DL_ERROR_NONE;
 }
 
 // ============================================================================
 // entity
-unsigned int diana_spawn(struct diana *diana) {
+int diana_spawn(struct diana *diana, unsigned int * result) {
 	unsigned int r;
 
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return 0;
+		return DL_ERROR_INVALID_OPERATION;
 	}
+
+#if DL_MUTEX
+	diana->mutex_lock(diana->entity_mutex);
+#endif
 
 	if(_sparseIntegerSet_isEmpty(diana, &diana->freeEntityIds)) {
 		r = diana->nextEntityId++;
@@ -954,6 +991,10 @@ unsigned int diana_spawn(struct diana *diana) {
 	}
 
 	diana->dataHeight = diana->dataHeight > (r + 1) ? diana->dataHeight : (r + 1);
+
+#if DL_MUTEX
+	diana->mutex_unlock(diana->entity_mutex);
+#endif
 
 	if(diana->dataHeight > diana->dataHeightCapacity) {
 #if DL_MUTEX
@@ -985,18 +1026,21 @@ unsigned int diana_spawn(struct diana *diana) {
 #endif
 	}
 
-	return r;
+	*result = r;
+
+	return DL_ERROR_NONE;
 }
 
-void diana_signal(struct diana *diana, unsigned int entity, unsigned int signal) {
+int diana_signal(struct diana *diana, unsigned int entity, unsigned int signal) {
+	int err = DL_ERROR_NONE;
+
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		DEBUG();
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 #if DL_MUTEX
@@ -1027,15 +1071,17 @@ void diana_signal(struct diana *diana, unsigned int entity, unsigned int signal)
 		_sparseIntegerSet_insert(diana, &diana->deleted, entity);
 		break;
 	default:
-		diana->error = DL_ERROR_INVALID_VALUE;
+		err = DL_ERROR_INVALID_VALUE;
 	}
 
 #if DL_MUTEX
 	diana->mutex_unlock(diana->signal_mutex);
 #endif
+
+	return err;
 }
 
-static unsigned int _getAComponentIndex(struct diana *diana, struct _component *c) {
+static int _getAComponentIndex(struct diana *diana, struct _component *c, unsigned int * out) {
 	unsigned int index;
 
 #if DL_MUTEX
@@ -1044,11 +1090,10 @@ static unsigned int _getAComponentIndex(struct diana *diana, struct _component *
 
 	if(_sparseIntegerSet_isEmpty(diana, &c->freeDataIndexes)) {
 		if(c->flags & DL_COMPONENT_LIMITED_BIT) {
-			diana->error = DL_ERROR_FULL_COMPONENT;
 #if DL_MUTEX
 			diana->mutex_unlock(c->component_mutex);
 #endif
-			return UINT_MAX;
+			return DL_ERROR_FULL_COMPONENT;
 		}
 
 		index = c->nextDataIndex++;
@@ -1063,19 +1108,21 @@ static unsigned int _getAComponentIndex(struct diana *diana, struct _component *
 	diana->mutex_unlock(c->component_mutex);
 #endif
 
-	return index;
+	*out = index;
+
+	return DL_ERROR_NONE;
 }
 
-static void _setComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, const void * data) {
+static int _setComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, const void * data) {
 	unsigned char *entityData = _getEntityData(diana, entity);
 	struct _component *c = diana->components + component;
 	int defined = _bits_set(entityData, component);
 	void *componentData = NULL;
+	int err = DL_ERROR_NONE;
 
 	// can only add a component if its inactive or if it already has that component
 	if(_denseIntegerSet_contains(diana, &diana->active, entity) && !defined) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 #if DL_COMPUTE
@@ -1089,10 +1136,10 @@ static void _setComponentI(struct diana *diana, unsigned int entity, unsigned in
 		unsigned int index;
 
 		if(i >= bag->count) {
-			index = _getAComponentIndex(diana, c);
+			err = _getAComponentIndex(diana, c, &index);
 
-			if(index == UINT_MAX) {
-				return;
+			if(err != DL_ERROR_NONE) {
+				return err;
 			}
 
 			bag->indexes = _realloc(diana, bag->indexes, sizeof(unsigned int) * bag->count, sizeof(unsigned int) * (bag->count + 1));
@@ -1104,11 +1151,10 @@ static void _setComponentI(struct diana *diana, unsigned int entity, unsigned in
 		unsigned int *index = (unsigned int *)(entityData + c->offset);
 
 		if(!defined) {
-			*index = _getAComponentIndex(diana, c);
+			err = _getAComponentIndex(diana, c, index);
 
-			if(*index == UINT_MAX) {
-				*index = 0;
-				return;
+			if(err != DL_ERROR_NONE) {
+				return err;
 			}
 		}
 
@@ -1120,9 +1166,11 @@ static void _setComponentI(struct diana *diana, unsigned int entity, unsigned in
 	if(data != NULL) {
 		memcpy(componentData, data, c->size);
 	}
+
+	return err;
 }
 
-static void * _getComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i) {
+static int _getComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, void ** ptr) {
 	unsigned char *entityData = _getEntityData(diana, entity);
 	struct _component *c = diana->components + component;
 	void *componentData = NULL;
@@ -1132,8 +1180,7 @@ static void * _getComponentI(struct diana *diana, unsigned int entity, unsigned 
 #endif
 
 	if(!_bits_isSet(entityData, component)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return NULL;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 #if DL_COMPUTE
@@ -1152,14 +1199,13 @@ static void * _getComponentI(struct diana *diana, unsigned int entity, unsigned 
 	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
 		struct _componentBag *bag = (struct _componentBag *)(entityData + c->offset);
 		if(i >= bag->count) {
-			diana->error = DL_ERROR_INVALID_VALUE;
-			return NULL;
+			return DL_ERROR_INVALID_VALUE;
 		}
 		componentData = (void *)((unsigned char *)c->data[bag->indexes[i]]);
 	} else if(c->flags & DL_COMPONENT_INDEXED_BIT) {
 		unsigned int *index = (unsigned int *)(entityData + c->offset);
 		if(*index == UINT_MAX) {
-			return NULL;
+			return DL_ERROR_INVALID_VALUE;
 		}
 		componentData = (void *)((unsigned char *)c->data[*index]);
 	} else {
@@ -1179,26 +1225,27 @@ static void * _getComponentI(struct diana *diana, unsigned int entity, unsigned 
 	}
 #endif
 
-	return componentData;
+	*ptr = componentData;
+
+	return DL_ERROR_NONE;
 }
 
-static void _removeComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i) {
+static int _removeComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i) {
 	unsigned char *entityData = _getEntityData(diana, entity);
 	struct _component *c = diana->components + component;
 
 	if(_denseIntegerSet_contains(diana, &diana->active, entity)) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if(!_bits_clear(entityData, component)) {
-		return;
+		return DL_ERROR_NONE;
 	}
 
 	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
 		struct _componentBag *bag = (struct _componentBag *)(entityData + c->offset);
 		if(i >= bag->count) {
-			return;
+			return DL_ERROR_NONE;
 		}
 #if DL_MUTEX
 		diana->mutex_lock(c->component_mutex);
@@ -1210,7 +1257,7 @@ static void _removeComponentI(struct diana *diana, unsigned int entity, unsigned
 		memcpy(bag->indexes + i, bag->indexes + i + 1, bag->count - i * sizeof(unsigned int));
 		bag->indexes = _realloc(diana, bag->indexes, sizeof(unsigned int) * bag->count, sizeof(unsigned int) * (bag->count - 1));
 		bag->count--;
-		return;
+		return DL_ERROR_NONE;
 	}
 
 	if(c->flags & DL_COMPONENT_INDEXED_BIT) {
@@ -1223,29 +1270,28 @@ static void _removeComponentI(struct diana *diana, unsigned int entity, unsigned
 		diana->mutex_unlock(c->component_mutex);
 #endif
 		*index = 0;
-		return;
 	}
+
+	return DL_ERROR_NONE;
 }
 
-unsigned int diana_clone(struct diana *diana, unsigned int parentEntity) {
+int diana_clone(struct diana *diana, unsigned int parentEntity, unsigned int * result) {
 	unsigned int newEntity, ci, cbi, cbn;
 	struct _component *c;
 	unsigned char *parentEntityData;
+	int err;
 
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return 0;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && parentEntity >= diana->dataHeight) || (diana->processing && parentEntity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return 0;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
-	newEntity = diana_spawn(diana);
-
-	if(diana->error != DL_ERROR_NONE) {
-		return 0;
+	err = diana_spawn(diana, &newEntity);
+	if(err != DL_ERROR_NONE) {
+		return err;
 	}
 
 	parentEntityData = _getEntityData(diana, parentEntity);
@@ -1257,75 +1303,77 @@ unsigned int diana_clone(struct diana *diana, unsigned int parentEntity) {
 
 		c = diana->components + ci;
 
-		cbn = diana_getComponentCount(diana, parentEntity, ci);
+		err = diana_getComponentCount(diana, parentEntity, ci, &cbn);
+		if(err != DL_ERROR_NONE) {
+			return err;
+		}
 
 		for(cbi = 0; cbi < cbn; cbi++) {
-			void *cd = _getComponentI(diana, parentEntity, ci, cbi);
+			void *cd;
+			err = _getComponentI(diana, parentEntity, ci, cbi, (void **)&cd);
+			if(err) {
+				return err;
+			}
 			_setComponentI(diana, newEntity, ci, cbi, cd);
 		}
 	}
 
-	return newEntity;
+	*result = newEntity;
+
+	return err;
 }
 
 // single
-void diana_setComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data) {
+int diana_setComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data) {
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	_setComponentI(diana, entity, component, 0, data);
+
+	return DL_ERROR_NONE;
 }
 
-void * diana_getComponent(struct diana *diana, unsigned int entity, unsigned int component) {
+int diana_getComponent(struct diana *diana, unsigned int entity, unsigned int component, void ** out) {
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return NULL;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return NULL;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return NULL;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
-	return _getComponentI(diana, entity, component, 0);
+	return _getComponentI(diana, entity, component, 0, out);
 }
 
 #if DL_COMPUTE
-void diana_dirtyComponent(struct diana *diana, unsigned int entity, unsigned int component) {
+int diana_dirtyComponent(struct diana *diana, unsigned int entity, unsigned int component) {
 	struct _component *c;
 	unsigned char *entityData;
 	unsigned int i, ci;
 
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	entityData = _getEntityData(diana, entity);
@@ -1335,46 +1383,44 @@ void diana_dirtyComponent(struct diana *diana, unsigned int entity, unsigned int
 		struct _component *c2 = diana->components + ci;
 		entityData[c2->offset - 1] = 1;
 	}
+
+	return DL_ERROR_NONE;
 }
 #endif
 
-void diana_removeComponent(struct diana *diana, unsigned int entity, unsigned int component) {
+int diana_removeComponent(struct diana *diana, unsigned int entity, unsigned int component) {
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	_removeComponentI(diana, entity, component, 0);
+
+	return DL_ERROR_NONE;
 }
 
 // multiple
-unsigned int diana_getComponentCount(struct diana *diana, unsigned int entity, unsigned int component) {
+int diana_getComponentCount(struct diana *diana, unsigned int entity, unsigned int component, unsigned int * result) {
 	unsigned char *entityData;
 	struct _component *c;
 
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return 0;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return 0;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return 0;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	entityData = _getEntityData(diana, entity);
@@ -1382,59 +1428,59 @@ unsigned int diana_getComponentCount(struct diana *diana, unsigned int entity, u
 
 	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
 		struct _componentBag *bag = (struct _componentBag *)(entityData + c->offset);
-		return bag->count;
+		*result = bag->count;
 	} else {
-		return _bits_isSet(entityData, component);
+		*result = _bits_isSet(entityData, component);
 	}
+
+	return DL_ERROR_NONE;
 }
 
-void diana_appendComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data) {
+int diana_appendComponent(struct diana *diana, unsigned int entity, unsigned int component, const void * data) {
 	unsigned char *entityData;
 	struct _component *c;
 
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	entityData = _getEntityData(diana, entity);
 	c = diana->components + component;
 
 	if(c->flags & DL_COMPONENT_MULTIPLE_BIT) {
-		_setComponentI(diana, entity, component, diana_getComponentCount(diana, entity, component), data);
+		unsigned int cbn;
+		diana_getComponentCount(diana, entity, component, &cbn);
+		_setComponentI(diana, entity, component, cbn, data);
 	} else {
 		_setComponentI(diana, entity, component, 0, data);
 	}
+
+	return DL_ERROR_NONE;
 }
 
-void diana_removeComponents(struct diana *diana, unsigned int entity, unsigned int component) {
+int diana_removeComponents(struct diana *diana, unsigned int entity, unsigned int component) {
 	unsigned char *entityData;
 	struct _component *c;
 	unsigned int i;
 
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	entityData = _getEntityData(diana, entity);
@@ -1459,62 +1505,59 @@ void diana_removeComponents(struct diana *diana, unsigned int entity, unsigned i
 	} else {
 		_removeComponentI(diana, entity, component, 0);
 	}
+
+	return DL_ERROR_NONE;
 }
 
 // low level
-void diana_setComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, const void * data) {
+int diana_setComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, const void * data) {
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	_setComponentI(diana, entity, component, i, data);
+
+	return DL_ERROR_NONE;
 }
 
-void * diana_getComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i) {
+int diana_getComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, void ** out) {
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return NULL;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return NULL;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return NULL;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
-	return _getComponentI(diana, entity, component, i);
+	return _getComponentI(diana, entity, component, i, out);
 }
 
-void diana_removeComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i) {
+int diana_removeComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i) {
 	if(!diana->initialized) {
-		diana->error = DL_ERROR_INVALID_OPERATION;
-		return;
+		return DL_ERROR_INVALID_OPERATION;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	if(component >= diana->num_components) {
-		diana->error = DL_ERROR_INVALID_VALUE;
-		return;
+		return DL_ERROR_INVALID_VALUE;
 	}
 
 	_removeComponentI(diana, entity, component, i);
+
+	return DL_ERROR_NONE;
 }
