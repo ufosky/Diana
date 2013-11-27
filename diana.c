@@ -5,6 +5,8 @@
 #include <string.h>
 #include <limits.h>
 
+static void DEBUG(void) { }
+
 // {{{ TYPES
 // {{{ VECTOR
 /* UNUSED
@@ -317,11 +319,9 @@ static int _sparseIntegerSet_delete(struct diana *diana, struct _sparseIntegerSe
 	return 0;
 }
 
-/*
 static void _sparseIntegerSet_clear(struct diana *diana, struct _sparseIntegerSet *is) {
 	is->population = 0;
 }
-*/
 
 static int _sparseIntegerSet_isEmpty(struct diana *diana, struct _sparseIntegerSet *is) {
 	return is->population == 0;
@@ -364,7 +364,6 @@ static int _denseIntegerSet_contains(struct diana *diana, struct _denseIntegerSe
 	return i < is->capacity && _bits_isSet(is->bytes, i);
 }
 
-/*
 static unsigned int _denseIntegerSet_insert(struct diana *diana, struct _denseIntegerSet *is, unsigned int i) {
 	if(i >= is->capacity) {
 		size_t newCapacity = (i + 1) * 1.5;
@@ -381,7 +380,6 @@ static unsigned int _denseIntegerSet_delete(struct diana *diana, struct _denseIn
 	}
 	return 0;
 }
-*/
 
 /* UNUSED
 static void _denseIntegerSet_clear(struct diana *diana, struct _denseIntegerSet *is) {
@@ -454,7 +452,6 @@ static void _system_free(struct diana *diana, struct _system *system) {
 	memset(system, 0, sizeof(*system));
 }
 
-/*
 static void _subscribe(struct diana *diana, struct _system *system, unsigned int entity) {
 	int included = _denseIntegerSet_insert(diana, &system->entities, entity);
 	if(!included && system->subscribed != NULL) {
@@ -514,7 +511,7 @@ static void _processSystem(struct diana *diana, struct _system *system, float de
 		_data_fix(diana);
 	}
 }
-*/
+
 // }}}
 
 // {{{ MANAGER
@@ -591,6 +588,8 @@ static int _data_getComponentCount(struct diana *diana, unsigned int entity, uns
 }
 
 static void _data_fix(struct diana *diana) {
+	diana->mutex_lock(diana->endpoint_mutex);
+
 	// take care of spawns that happen during processing
 	if(diana->processingData != NULL) {
 		unsigned int newDataHeight = diana->dataHeight + diana->processingDataHeight, i;
@@ -612,6 +611,8 @@ static void _data_fix(struct diana *diana) {
 		diana->processingData = NULL;
 		diana->processingDataHeight = 0;
 	}
+
+	diana->mutex_unlock(diana->endpoint_mutex);
 }
 
 static int _setComponentI(struct diana *diana, unsigned int entity, unsigned int component, unsigned int i, const void * data) {
@@ -623,6 +624,7 @@ static int _setComponentI(struct diana *diana, unsigned int entity, unsigned int
 
 	// can only add a component if its inactive or if it already has that component
 	if(_denseIntegerSet_contains(diana, &diana->active, entity) && !defined) {
+		DEBUG();
 		return DL_ERROR_INVALID_OPERATION;
 	}
 
@@ -1147,7 +1149,6 @@ unlock:
 
 // {{{ PROCESSING
 int diana_process(struct diana *diana, float delta) {
-	/*
 	unsigned int i, j;
 	struct _system *system;
 	struct _manager *manager;
@@ -1155,30 +1156,41 @@ int diana_process(struct diana *diana, float delta) {
 	int *enabled, num_enabled;
 	int *disabled, num_disabled;
 	int *deleted, num_deleted;
-	
-	if(!diana->initialized) {
-		return DL_ERROR_INVALID_OPERATION;
+
+	int err = DL_ERROR_NONE;
+
+	if(diana == NULL) {
+		return DL_ERROR_INVALID_VALUE;
 	}
 
-	num_added = diana->added.population;
-	added = _malloc(diana, sizeof(unsigned int) * num_added);
-	memcpy(added, diana->added.dense, sizeof(unsigned int) * num_added);
-	_sparseIntegerSet_clear(diana, &diana->added);
+	diana->mutex_lock(diana->endpoint_mutex);
+	
+		if(!diana->initialized) {
+			diana->mutex_unlock(diana->endpoint_mutex);
+			return DL_ERROR_INVALID_OPERATION;
+		}
 
-	num_enabled = diana->enabled.population;
-	enabled = _malloc(diana, sizeof(unsigned int) * num_enabled);
-	memcpy(enabled, diana->enabled.dense, sizeof(unsigned int) * num_enabled);
-	_sparseIntegerSet_clear(diana, &diana->enabled);
+		num_added = diana->added.population;
+		added = _malloc(diana, sizeof(unsigned int) * num_added);
+		memcpy(added, diana->added.dense, sizeof(unsigned int) * num_added);
+		_sparseIntegerSet_clear(diana, &diana->added);
 
-	num_disabled = diana->disabled.population;
-	disabled = _malloc(diana, sizeof(unsigned int) * num_disabled);
-	memcpy(disabled, diana->disabled.dense, sizeof(unsigned int) * num_disabled);
-	_sparseIntegerSet_clear(diana, &diana->disabled);
+		num_enabled = diana->enabled.population;
+		enabled = _malloc(diana, sizeof(unsigned int) * num_enabled);
+		memcpy(enabled, diana->enabled.dense, sizeof(unsigned int) * num_enabled);
+		_sparseIntegerSet_clear(diana, &diana->enabled);
 
-	num_deleted = diana->deleted.population;
-	deleted = _malloc(diana, sizeof(unsigned int) * num_deleted);
-	memcpy(deleted, diana->deleted.dense, sizeof(unsigned int) * num_deleted);
-	_sparseIntegerSet_clear(diana, &diana->deleted);
+		num_disabled = diana->disabled.population;
+		disabled = _malloc(diana, sizeof(unsigned int) * num_disabled);
+		memcpy(disabled, diana->disabled.dense, sizeof(unsigned int) * num_disabled);
+		_sparseIntegerSet_clear(diana, &diana->disabled);
+
+		num_deleted = diana->deleted.population;
+		deleted = _malloc(diana, sizeof(unsigned int) * num_deleted);
+		memcpy(deleted, diana->deleted.dense, sizeof(unsigned int) * num_deleted);
+		_sparseIntegerSet_clear(diana, &diana->deleted);
+
+	diana->mutex_unlock(diana->endpoint_mutex);
 
 	for(i = 0; i < num_added; i++) {
 		unsigned int entity = added[i];
@@ -1228,18 +1240,22 @@ int diana_process(struct diana *diana, float delta) {
 		}
 	}
 
-	for(i = 0; i < num_enabled; i++) {
-		unsigned int entity = enabled[i];
-		_denseIntegerSet_insert(diana, &diana->active, entity);
-	}
-	for(i = 0; i < num_disabled; i++) {
-		unsigned int entity = disabled[i];
-		_denseIntegerSet_delete(diana, &diana->active, entity);
-	}
-	for(i = 0; i < num_deleted; i++) {
-		unsigned int entity = deleted[i];
-		_sparseIntegerSet_insert(diana, &diana->freeEntityIds, entity);
-	}
+	diana->mutex_lock(diana->endpoint_mutex);
+
+		for(i = 0; i < num_enabled; i++) {
+			unsigned int entity = enabled[i];
+			_denseIntegerSet_insert(diana, &diana->active, entity);
+		}
+		for(i = 0; i < num_disabled; i++) {
+			unsigned int entity = disabled[i];
+			_denseIntegerSet_delete(diana, &diana->active, entity);
+		}
+		for(i = 0; i < num_deleted; i++) {
+			unsigned int entity = deleted[i];
+			_sparseIntegerSet_insert(diana, &diana->freeEntityIds, entity);
+		}
+
+	diana->mutex_unlock(diana->endpoint_mutex);
 
 	_free(diana, added);
 	_free(diana, enabled);
@@ -1252,23 +1268,34 @@ int diana_process(struct diana *diana, float delta) {
 		}
 		_processSystem(diana, system, delta);
 	}
-	*/
-	return DL_ERROR_NONE;
+
+	return err;
 }
 
 int diana_processSystem(struct diana *diana, unsigned int system, float delta) {
-	/*
-	if(!diana->initialized) {
-		return DL_ERROR_INVALID_OPERATION;
-	}
+	int err = DL_ERROR_NONE;
 
-	if(system >= diana->num_systems) {
+	if(diana == NULL) {
 		return DL_ERROR_INVALID_VALUE;
 	}
 
+	diana->mutex_lock(diana->endpoint_mutex);
+
+		if(!diana->initialized) {
+			diana->mutex_unlock(diana->endpoint_mutex);
+			return DL_ERROR_INVALID_OPERATION;
+		}
+
+		if(system >= diana->num_systems) {
+			diana->mutex_unlock(diana->endpoint_mutex);
+			return DL_ERROR_INVALID_VALUE;
+		}
+
+	diana->mutex_unlock(diana->endpoint_mutex);
+
 	_processSystem(diana, diana->systems + system, delta);
-	*/
-	return DL_ERROR_NONE;
+
+	return err;
 }
 // }}}
 
@@ -1594,16 +1621,19 @@ int diana_appendComponent(struct diana *diana, unsigned int entity, unsigned int
 	diana->mutex_lock(diana->endpoint_mutex);
 
 	if(!diana->initialized) {
+		DEBUG();
 		err = DL_ERROR_INVALID_OPERATION;
 		goto unlock;
 	}
 
 	if((!diana->processing && entity >= diana->dataHeight) || (diana->processing && entity >= diana->dataHeightCapacity + diana->processingDataHeight)) {
+		DEBUG();
 		err = DL_ERROR_INVALID_VALUE;
 		goto unlock;
 	}
 
 	if(component >= diana->num_components) {
+		DEBUG();
 		err = DL_ERROR_INVALID_VALUE;
 		goto unlock;
 	}

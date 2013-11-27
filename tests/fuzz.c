@@ -48,11 +48,12 @@ unsigned int component_indexed_limited;
 unsigned int component_multiple_limited;
 unsigned int components[5];
 
+void *disabled_eids_mutex;
 struct _sparseIntegerSet disabled_eids;
 
 struct diana *global_diana;
 
-#define DIANA(F, ...) do { int __err = diana_ ## F (global_diana, ## __VA_ARGS__); if(__err != DL_ERROR_NONE) { printf("%s:%i ERROR %i\n", __FILE__, __LINE__, __err); print_stats(); exit(0); } } while(0)
+#define DIANA(F, ...) do { int __err = diana_ ## F (global_diana, ## __VA_ARGS__); if(__err != DL_ERROR_NONE && __err != DL_ERROR_FULL_COMPONENT) { printf("%s:%i ERROR %i\n", __FILE__, __LINE__, __err); print_stats(); exit(0); } } while(0)
 
 #define R(MIN, MAX) ((rand() % (MAX - MIN)) + MIN)
 
@@ -89,8 +90,32 @@ void enable(unsigned int eid) {
     DIANA(signal, eid, DL_ENTITY_ENABLED);
 }
 
+static void *create_mutex(void) {
+    pthread_mutex_t *m = malloc(sizeof(*m));
+    pthread_mutex_init(m, NULL);
+    return m;
+}
+
+static void mutex_lock(void *_m) {
+    pthread_mutex_t *m = (pthread_mutex_t *)_m;
+    pthread_mutex_lock(m);
+}
+
+static void mutex_unlock(void *_m) {
+    pthread_mutex_t *m = (pthread_mutex_t *)_m;
+    pthread_mutex_unlock(m);
+}
+
+static void mutex_free(void *_m) {
+    pthread_mutex_t *m = (pthread_mutex_t *)_m;
+    pthread_mutex_destroy(m);
+    free(m);
+}
+
 void disable(unsigned int eid) {
+    mutex_lock(disabled_eids_mutex);
     _sparseIntegerSet_insert(global_diana, &disabled_eids, eid);
+    mutex_unlock(disabled_eids_mutex);
     DIANA(signal, eid, DL_ENTITY_DELETED);
 }
 
@@ -189,33 +214,13 @@ void *thread_proc(void *td) {
     return NULL;
 }
 
-static void *create_mutex(void) {
-    pthread_mutex_t *m = malloc(sizeof(*m));
-    pthread_mutex_init(m, NULL);
-    return m;
-}
-
-static void mutex_lock(void *_m) {
-    pthread_mutex_t *m = (pthread_mutex_t *)_m;
-    pthread_mutex_lock(m);
-}
-
-static void mutex_unlock(void *_m) {
-    pthread_mutex_t *m = (pthread_mutex_t *)_m;
-    pthread_mutex_unlock(m);
-}
-
-static void mutex_free(void *_m) {
-    pthread_mutex_t *m = (pthread_mutex_t *)_m;
-    pthread_mutex_destroy(m);
-    free(m);
-}
-
 int main(int argc, char *argv[]) {
     unsigned int eid, stati = 0, i;
     struct timespec time1, time2, time3, setup_time, iteration_time;
 
     struct thread_data t1, t2, t3;
+
+    int threaded = 0;
 
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time1);
 
@@ -227,11 +232,17 @@ int main(int argc, char *argv[]) {
     DIANA(createComponent, "Indexed Limited", 256, DL_COMPONENT_FLAG_INDEXED | DL_COMPONENT_FLAG_LIMITED(128), &components[4]);
     DIANA(createComponent, "Multiple Limited", 256, DL_COMPONENT_FLAG_MULTIPLE | DL_COMPONENT_FLAG_LIMITED(128), &components[4]);
 
-    DIANA(createSystem, "Random", NULL, random_process, NULL, random_subscribed, random_unsubscribed, NULL, DL_SYSTEM_FLAG_PASSIVE, &t1.system);
-    DIANA(createSystem, "Random", NULL, random_process, NULL, random_subscribed, random_unsubscribed, NULL, DL_SYSTEM_FLAG_PASSIVE, &t2.system);
-    DIANA(createSystem, "Random", NULL, random_process, NULL, random_subscribed, random_unsubscribed, NULL, DL_SYSTEM_FLAG_PASSIVE, &t3.system);
+    if(threaded) {
+        DIANA(createSystem, "Random", NULL, random_process, NULL, random_subscribed, random_unsubscribed, NULL, DL_SYSTEM_FLAG_PASSIVE, &t1.system);
+        DIANA(createSystem, "Random", NULL, random_process, NULL, random_subscribed, random_unsubscribed, NULL, DL_SYSTEM_FLAG_PASSIVE, &t2.system);
+        DIANA(createSystem, "Random", NULL, random_process, NULL, random_subscribed, random_unsubscribed, NULL, DL_SYSTEM_FLAG_PASSIVE, &t3.system);
 
-    DIANA(mutexFunctions, create_mutex, mutex_lock, mutex_unlock, mutex_free);
+        DIANA(mutexFunctions, create_mutex, mutex_lock, mutex_unlock, mutex_free);
+    } else {
+        DIANA(createSystem, "Random", NULL, random_process, NULL, random_subscribed, random_unsubscribed, NULL, DL_SYSTEM_FLAG_NORMAL, &t1.system);
+    }
+
+    disabled_eids_mutex = create_mutex();
 
     DIANA(initialize);
 
@@ -239,21 +250,28 @@ int main(int argc, char *argv[]) {
         add(spawn());
     }
 
-    pthread_create(&t1.thread, NULL, thread_proc, &t1);
-    pthread_create(&t2.thread, NULL, thread_proc, &t2);
-    pthread_create(&t3.thread, NULL, thread_proc, &t3);
+    if(threaded) {
+        pthread_create(&t1.thread, NULL, thread_proc, &t1);
+        pthread_create(&t2.thread, NULL, thread_proc, &t2);
+        pthread_create(&t3.thread, NULL, thread_proc, &t3);
+    }
 
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time2);
 
     while(stati < 3000000) {
+        mutex_lock(disabled_eids_mutex);
         if(!_sparseIntegerSet_isEmpty(global_diana, &disabled_eids)) {
             eid = _sparseIntegerSet_pop(global_diana, &disabled_eids);
+            mutex_unlock(disabled_eids_mutex);
+
             add_random_component(eid);
             DIANA(removeComponents, eid, R(0, 5));
             enable(eid);
+        } else {
+            mutex_unlock(disabled_eids_mutex);
         }
 
-        stati = t1.iterations + t2.iterations + t3.iterations;
+        stati = threaded ? t1.iterations + t2.iterations + t3.iterations : t1.iterations;
 
         DIANA(process, 0);
     }
@@ -263,8 +281,6 @@ int main(int argc, char *argv[]) {
     t3.alive = 0;
 
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time3);
-
-    diana_free(global_diana);
 
     setup_time = diff(time1, time2);
     iteration_time = diff(time2, time3);
@@ -278,6 +294,14 @@ int main(int argc, char *argv[]) {
     printf("%i iterations completed in ", stati);
     print_timespec(iteration_time);
     printf("\n");
+
+    if(threaded) {
+        pthread_join(t1.thread, NULL);
+        pthread_join(t2.thread, NULL);
+        pthread_join(t3.thread, NULL);
+    }
+
+    diana_free(global_diana);
 
     return 0;
 }
