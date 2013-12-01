@@ -35,13 +35,13 @@ public:
 	}
 
 	virtual void process(Entity & entity, float delta) {
-		Position &position = entity.getComponent<Position>();
-		Velocity &velocity = entity.getComponent<Velocity>();
+		Position * position = entity.getComponent<Position>();
+		Velocity * velocity = entity.getComponent<Velocity>();
 
-		position.x += velocity.x * delta;
-		position.y += velocity.y * delta;
+		position->x += velocity->x * delta;
+		position->y += velocity->y * delta;
 
-		printf("%i move to (%f,%f)\n", entity.getId(), position.x, position.y);
+		printf("%i move to (%f,%f)\n", entity.getId(), position->x, position->y);
 	}
 };
 
@@ -55,10 +55,10 @@ public:
 	}
 
 	virtual void process(Entity & entity, float delta) {
-		Position &position = entity.getComponent<Position>();
-		Renderer &renderer = entity.getComponent<Renderer>();
+		Position * position = entity.getComponent<Position>();
+		Renderer * renderer = entity.getComponent<Renderer>();
 
-		printf("%i rendered at (%f,%f,%c)\n", entity.getId(), position.x, position.y, renderer.c);
+		printf("%i rendered at (%f,%f,%c)\n", entity.getId(), position->x, position->y, renderer->c);
 	}
 };
 

@@ -8,7 +8,7 @@ namespace Diana {
 // WORLD
 // - really 'diana' but world is a better name
 World::World(void *(*malloc)(size_t), void (*free)(void *)) {
-	diana = allocate_diana(malloc, free);
+	allocate_diana(malloc, free, &diana);
 }
 
 void World::registerSystem(System *system) {
@@ -28,7 +28,8 @@ void World::process(float delta) {
 }
 
 Entity World::spawn() {
-	unsigned int eid = diana_spawn(diana);
+	unsigned int eid;
+	diana_spawn(diana, &eid);
 	return Entity(this, eid);
 }
 
@@ -82,7 +83,7 @@ static void _system_unsubscribed(struct diana *, void *user_data, unsigned int e
 
 void System::setWorld(World *world) {
 	_world = world;
-	_id = diana_createSystem(world->getDiana(), _name.c_str(), _system_starting, _system_process, _system_ending, _system_subscribed, _system_unsubscribed, this, systemFlags());
+	diana_createSystem(world->getDiana(), _name.c_str(), _system_starting, _system_process, _system_ending, _system_subscribed, _system_unsubscribed, this, systemFlags(), &_id);
 	addWatches();
 }
 
@@ -114,7 +115,7 @@ static void _manager_deleted(struct diana *, void *user_data, unsigned int entit
 
 void Manager::setWorld(World *world) {
 	_world = world;
-	_id = diana_createManager(world->getDiana(), _name.c_str(), _manager_added, _manager_enabled, _manager_disabled, _manager_deleted, this, managerFlags());
+	diana_createManager(world->getDiana(), _name.c_str(), _manager_added, _manager_enabled, _manager_disabled, _manager_deleted, this, managerFlags(), &_id);
 }
 
 };

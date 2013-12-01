@@ -52,7 +52,9 @@ struct _sparseIntegerSet disabled_eids;
 
 struct diana *global_diana;
 
-#define DIANA(F, ...) diana_ ## F (global_diana, ## __VA_ARGS__)
+void BRK(void) { }
+
+#define DIANA(F, ...) do { int ___err = diana_ ## F (global_diana, ## __VA_ARGS__); if(___err != DL_ERROR_NONE && ___err != DL_ERROR_FULL_COMPONENT) { printf("%s:%i diana_" #F "(global_diana, " #__VA_ARGS__ ") -> %i\n", __FILE__, __LINE__, ___err); BRK(); } } while(0)
 
 #define R(MIN, MAX) ((rand() % (MAX - MIN)) + MIN)
 
@@ -61,8 +63,9 @@ void add_random_component(unsigned int eid) {
 }
 
 unsigned int spawn(void) {
-    unsigned int eid = DIANA(spawn);
+    unsigned int eid;
     unsigned int actions = R(1, 6), action;
+    DIANA(spawn, &eid);
     num_spawns++;
     if(eid > max_eid_spawned) {
         max_eid_spawned = eid;
@@ -75,7 +78,9 @@ unsigned int spawn(void) {
 
 unsigned int clone(unsigned int eid) {
     num_spawns++;
-    return DIANA(clone, eid);
+    unsigned int new_eid;
+    DIANA(clone, eid, &new_eid);
+    return new_eid;
 }
 
 void add(unsigned int eid) {
@@ -87,8 +92,8 @@ void enable(unsigned int eid) {
 }
 
 void disable(unsigned int eid) {
-    _sparseIntegerSet_insert(global_diana, &disabled_eids, DIANA(clone, eid));
-    DIANA(signal, eid, DL_ENTITY_DELETED);
+    _sparseIntegerSet_insert(global_diana, &disabled_eids, eid);
+    DIANA(signal, eid, DL_ENTITY_DISABLED);
 }
 
 void delete(unsigned int eid) {
@@ -161,20 +166,20 @@ void print_timespec(struct timespec ts) {
 }
 
 int main(int argc, char *argv[]) {
-    unsigned int eid, error, stati = 0, i;
+    unsigned int eid, stati = 0, i;
     struct timespec time1, time2, time3, setup_time, iteration_time;
 
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time1);
 
-    global_diana = allocate_diana(fuzz_malloc, fuzz_free);
+    allocate_diana(fuzz_malloc, fuzz_free, &global_diana);
 
-    components[0] = component_normal = DIANA(createComponent, "Normal", 8, DL_COMPONENT_FLAG_INLINE);
-    components[1] = component_indexed = DIANA(createComponent, "Indexed", 16, DL_COMPONENT_FLAG_INDEXED);
-    components[2] = component_multiple = DIANA(createComponent, "Multiple", 8, DL_COMPONENT_FLAG_MULTIPLE);
-    components[3] = component_indexed_limited = DIANA(createComponent, "Indexed Limited", 256, DL_COMPONENT_FLAG_INDEXED | DL_COMPONENT_FLAG_LIMITED(128));
-    components[4] = component_multiple_limited = DIANA(createComponent, "Multiple Limited", 256, DL_COMPONENT_FLAG_MULTIPLE | DL_COMPONENT_FLAG_LIMITED(128));
+    DIANA(createComponent, "Normal", 8, DL_COMPONENT_FLAG_INLINE, &components[0]);
+    DIANA(createComponent, "Indexed", 16, DL_COMPONENT_FLAG_INDEXED, &components[1]);
+    DIANA(createComponent, "Multiple", 8, DL_COMPONENT_FLAG_MULTIPLE, &components[2]);
+    DIANA(createComponent, "Indexed Limited", 256, DL_COMPONENT_FLAG_INDEXED | DL_COMPONENT_FLAG_LIMITED(128), &components[3]);
+    DIANA(createComponent, "Multiple Limited", 256, DL_COMPONENT_FLAG_MULTIPLE | DL_COMPONENT_FLAG_LIMITED(128), &components[4]);
 
-    random_system = DIANA(createSystem, "Random", NULL, random_process, NULL, random_subscribed, random_unsubscribed, NULL, DL_SYSTEM_FLAG_NORMAL);
+    DIANA(createSystem, "Random", NULL, random_process, NULL, random_subscribed, random_unsubscribed, NULL, DL_SYSTEM_FLAG_NORMAL, &random_system);
 
     DIANA(initialize);
 
@@ -193,17 +198,6 @@ int main(int argc, char *argv[]) {
         }
 
         DIANA(process, 0);
-
-        // ignore these for now
-        if(global_diana->error == DL_ERROR_FULL_COMPONENT) {
-            global_diana->error = DL_ERROR_NONE;
-        }
-
-        error = DIANA(getError);
-        if(error != DL_ERROR_NONE) {
-            print_stats();
-            printf("%u: ERROR: %u\n", stati, error);
-        }
     }
 
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time3);
